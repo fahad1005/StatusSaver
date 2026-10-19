@@ -1,0 +1,42 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- All user-visible text lives here. Translating the app = translating this file. -->
+<resources>
+    <string name="app_name">StatusSaver</string>
+
+    <!-- TODO(FAHAD): Replace with YOUR banner ad unit ID from admob.com.
+         The value below is Google's SAMPLE id — it only shows test ads. -->
+    <string name="banner_ad_unit_id">ca-app-pub-3940256099942544/6300978111</string>
+
+    <string name="onboarding_title">Save any WhatsApp status in one tap</string>
+    <string name="onboarding_sub">First, grant 3 permissions. Then the floating SAVE button is yours.</string>
+
+    <string name="card_overlay_title">1. Display over other apps</string>
+    <string name="card_overlay_text">Lets the small SAVE button hover over WhatsApp while you view statuses.</string>
+    <string name="btn_allow_overlay">Allow display over apps</string>
+
+    <string name="card_files_title">2. File access</string>
+    <string name="card_files_text">Lets the app read WhatsApp\'s hidden status folder so it can save what you viewed. Nothing else is touched.</string>
+    <string name="btn_allow_files">Allow file access</string>
+
+    <string name="card_notif_title">3. Notifications</string>
+    <string name="card_notif_text">Android 13+ needs this so the floating button can stay alive in the background.</string>
+    <string name="btn_allow_notif">Allow notifications</string>
+
+    <string name="show_button">Show floating button</string>
+    <string name="hide_button">Hide floating button</string>
+    <string name="grant_first">Grant the permissions above first</string>
+
+    <string name="statuses_header">Your recent statuses</string>
+    <string name="empty_statuses">No statuses found yet.\nView a status in WhatsApp, then come back.</string>
+    <string name="grant_files_first">Grant file access above to see your statuses.</string>
+    <string name="btn_save">Save</string>
+    <string name="badge_video">▶ VIDEO</string>
+
+    <string name="saved_gallery">Saved to gallery ✓</string>
+    <string name="save_failed">Save failed — check permissions</string>
+    <string name="no_statuses">No statuses found — view one in WhatsApp first</string>
+    <string name="saved_which_file">Saved \"%1$s\" (from %2$d min ago) ✓</string>
+
+    <string name="notif_title">StatusSaver is running</string>
+    <string name="notif_text">Tap to hide the floating button</string>
+</resources>
