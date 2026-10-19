@@ -1,0 +1,12 @@
+# Standard Android gitignore.
+*.iml
+.gradle/
+/local.properties
+.idea/
+.DS_Store
+/build/
+/app/build/
+/app/release/
+*.apk
+*.aab
+local.properties

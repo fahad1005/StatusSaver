@@ -1,0 +1,20 @@
+// StatusSaver v1 scaffold — Fahad's first app.
+// Lesson tie-in: every file here maps to a word from Phase 1 (repo, commit, CI).
+// See README.md for the file-by-file tour.
+
+pluginManagement {
+    repositories {
+        google()
+        mavenCentral()
+        gradlePluginPortal()
+    }
+}
+dependencyResolutionManagement {
+    repositoriesMode.set(RepositoriesMode.FAIL_ON_PROJECT_REPOS)
+    repositories {
+        google()
+        mavenCentral()
+    }
+}
+rootProject.name = "StatusSaver"
+include(":app")
