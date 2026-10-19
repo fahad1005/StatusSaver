@@ -1,0 +1,45 @@
+# StatusSaver CI — the robot builder.
+#
+# WHAT THIS IS (your vocabulary): CI/CD = "every time code changes, a robot
+# builds the app by itself." You push a commit → GitHub builds the APK →
+# you download it from the Actions tab. No Android Studio needed on your PC.
+#
+# NOTE: no gradle wrapper is committed (this box has no Java/Gradle to make
+# one). The setup-gradle action below installs Gradle 8.7 itself, so the
+# build works without a wrapper.
+
+name: Build APK
+
+on:
+  push:
+    branches: ["main"]
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out the code
+        uses: actions/checkout@v4
+
+      - name: Set up Java 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Set up Gradle 8.7
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: 8.7
+
+      - name: Build the app (debug APK)
+        run: gradle :app:assembleDebug
+
+      - name: Upload the installable file
+        uses: actions/upload-artifact@v4
+        with:
+          name: StatusSaver-debug-apk
+          path: app/build/outputs/apk/debug/app-debug.apk
