@@ -1,6 +1,221 @@
-# StatusSaver — build notes (v1, 2026-10-19; v1.1 & v1.2 updates 2026-10-20)
+# StatusSaver — build notes (v1, 2026-10-19; v1.1–v1.3 updates 2026-10-20)
 
 Engineering log for the v1 build.
+
+## v1.3 (2026-10-20) — architecture fix: the watcher owns the button
+
+### Field evidence (v1.2 on Fahad's vivo phone, evening test)
+v1.2's diagnostics split the case cleanly:
+- **Saves WORK.** The Files app shows the StatusSaver album with 3 items
+  (1 jpg 81 KB, 2 mp4 2.08 MB + 3.21 MB, today's timestamps) — the
+  verified save path is proven. BUT his **Gallery app does not surface
+  them** → a gallery-visibility problem, not a save problem.
+- **The button worked, then died permanently.** At ~6:26 PM the button
+  appeared in a status and a video saved. Later screenshots:
+  MainActivity toggle intent ON ("Hide floating button"), Diagnostics
+  reading `Floating service: NOT RUNNING`, `Watcher: CONNECTED`, button
+  never appearing again.
+
+### Root cause (the one v1.2's design couldn't survive)
+The process was killed (vivo battery manager / recents). Android
+revived the **accessibility watcher** — the system keeps enabled
+accessibility services bound — but did **NOT** revive the START_STICKY
+**FloatingService**: OEMs routinely suppress sticky-service restarts,
+and even on stock Android sticky restart is a favour, not a contract.
+Nothing noticed, nothing healed: statics reset, the toggle label
+(intent, from the activity) and the service flag (a different
+lifecycle) disagreed forever. Any architecture where the button's
+owner can die separately from the component the system guarantees to
+revive will eventually strand the button exactly like this.
+
+### The fix — one engine
+- **`StatusWatcherService` owns the button.** It creates the button
+  view itself (identical design: 56dp, #25D366 `floating_bg`, white
+  `ic_download`, BOTTOM|END 16dp/110dp, `FLAG_NOT_FOCUSABLE`) as a
+  `WindowManager.LayoutParams.TYPE_ACCESSIBILITY_OVERLAY` window — a
+  type reserved for accessibility services, needing **no
+  SYSTEM_ALERT_WINDOW permission**. Rule (as first built): attached ⇔
+  persisted user choice ON **and** current screen MATCHES the status
+  detector (matcher, exclusions and the persisted last-seen record
+  unchanged from v1.2). **Superseded the same day by the final spec —
+  see "Final-spec completion" below: visibility is now package-level
+  (WhatsApp in the foreground), and the detector drives the tap and
+  auto-save instead.** Show/hide is **addView/removeView** (not
+  visibility): hidden means *no window exists* — nothing drawn,
+  nothing touchable — and "visible now" has one unambiguous answer
+  for diagnostics.
+- **Tap = save newest status**, moved verbatim from FloatingService
+  (StatusScanner.newest + SaveHelper.saveToGallery, age-naming toast
+  and all). SaveHelper is untouched in behaviour, so the button path
+  and the in-app grid path stay identical.
+- **`FloatingService` is DELETED** (class + manifest entry). The
+  persistent notification goes with it — intended: the in-app toggle +
+  the watcher are now the whole engine; there is nothing left that
+  needs a "running" notice. `FOREGROUND_SERVICE`,
+  `FOREGROUND_SERVICE_SPECIAL_USE` and `POST_NOTIFICATIONS` are
+  removed from the manifest (checked: nothing else used them — no
+  other service, no notifications; AdMob needs none of them).
+  `SYSTEM_ALERT_WINDOW` stays *declared* but unused: the Diagnostics
+  card reports it as "legacy — not required since v1.3". (Play review
+  may prefer dropping it entirely — a one-line manifest change if a
+  reviewer asks; keeping it costs nothing at runtime.)
+- **Toggle = persisted choice + nudge.** MainActivity's toggle flips
+  `Prefs.buttonEnabled` and calls the static
+  `StatusWatcherService.reevaluate()` hook (posts `updateButton()` on
+  the watcher's main handler). The label reads the SAME Prefs record —
+  one source of truth, so label and engine can no longer disagree.
+  If the watcher is **not connected**, enabling is refused honestly
+  with "Turn on Accessibility first" and nothing is recorded — no
+  more ON labels pointing at dead engines.
+- **Self-heal.** `onServiceConnected` re-reads Prefs (choice +
+  last-screen record) and evaluates immediately: a FRESH (<30 s) MATCH
+  restores the button mid-status; anything else starts hidden and the
+  next window event decides. `onUnbind`/`onDestroy` remove the button
+  — the safe state is *no window*.
+- **Diagnostics v1.3 rows:** Overlay permission (labelled legacy),
+  Accessibility switch, Watcher CONNECTED, **Button engine:
+  WATCHER · ALIVE/DEAD** (= watcher connected), **Button visible now:
+  YES/NO** (the watcher's real attach state), Last seen screen
+  (unchanged), and NEW **Last save attempt** — SaveHelper now records
+  every attempt in Prefs (time · file name · size · SAVED, or FAILED +
+  the exception's reason). "It saved but it's not in my gallery" is
+  now answerable from one screenshot: if the row says SAVED and Files
+  shows the file, it's the gallery's indexing, full stop.
+- **Gallery visibility.** The MediaStore insert now sets `DATE_TAKEN`
+  (source file's mtime, milliseconds) and `DATE_ADDED` (now, seconds —
+  MediaStore's units, don't swap them), and after the verified publish
+  the saved file is handed to `MediaScannerConnection.scanFile`
+  (path resolved via the inserted row's `_data` column; skipped
+  silently if null; wrapped so it can never fail a verified save).
+  Byte-count + read-back verification are byte-for-byte as v1.1/v1.2.
+- **Permission flow (as first built): 2 cards** — 1) File access,
+  2) Accessibility. **Superseded the same day by the final spec's
+  one-time Allow wizard (3 steps) — see "Final-spec completion".**
+  MANAGE_EXTERNAL_STORAGE / legacy storage logic untouched — status
+  reading still needs it.
+- Design decision #2 below (FGS "specialUse") is **retired** by this
+  release; it stays in the log as history.
+
+### Files changed in v1.3
+Changed: `app/build.gradle` (versionCode 4 / versionName "1.3"),
+`app/src/main/AndroidManifest.xml` (FloatingService entry + 3
+permissions removed), `.../StatusWatcherService.kt` (button ownership,
+self-heal, save path), `.../MainActivity.kt` (toggle, 2-card flow,
+diagnostics rows — the final-spec pass then replaced the cards with
+the Allow wizard and added tabs + auto-save; see "Final-spec
+completion" below), `.../Prefs.kt` (last-save record), `.../SaveHelper.kt`
+(dates + scanner nudge + attempt recording), `.../PermissionHelper.kt`
+(comments/copy), `app/src/main/res/layout/activity_main.xml`,
+`app/src/main/res/values/strings.xml`, `README.md`, `BUILD_NOTES.md`,
+`UPDATE_INSTRUCTIONS.md`, `PRIVACY_POLICY.md`, `STORE_LISTING.md`.
+**Deleted: `.../FloatingService.kt`** (via GitHub web UI — see
+UPDATE_INSTRUCTIONS.md; the update zip cannot carry a deletion).
+Not changed: `StatusScanner.kt`, `accessibility_service_config.xml`
+(same events, same no-content-access), drawables, colors.
+
+### Final-spec completion (2026-10-20, after Fahad approved the spec)
+
+The first v1.3 build above was frozen mid-flight on Fahad's order
+("Before you create it") so he could add product requirements. He
+then approved the final spec, and this pass finished it. English
+only — localization was explicitly deferred by Fahad; no
+`values-ur`/`values-hi` were added.
+
+1. **Visibility = package-level.** `updateButton()` now shows the
+   button ⇔ `Prefs.buttonEnabled` AND the foreground package is
+   `com.whatsapp` / `com.whatsapp.w4b` (tracked on every event as
+   `whatsappOnScreen`). It remains a pure re-derivation per event:
+   `attachButton()` now also verifies `view.parent != null` and
+   re-adds a view that was dropped underneath us; `detachButton()`
+   removes by parent, not by flag. The status matcher still runs,
+   still persists its record (Diagnostics "Last seen screen" +
+   MATCH verdict unchanged) — it just no longer gates visibility.
+   onServiceConnected restores BOTH states from a fresh (<30 s)
+   record: package from the record's pkg, status from its verdict.
+2. **Smart tap.** The button's click is now `onButtonTap()`: if
+   `isStatusBeingViewed()` (live detector state, or a persisted
+   MATCH <30 s old) → the unchanged verified save-newest flow;
+   otherwise a friendly Toast ("Open a status first, then tap the
+   green button."). No silent no-ops anywhere.
+3. **One-time Allow wizard** (replaces the 2 permission cards).
+   Sequential steps in one card, each with ONE full-width "Allow"
+   button deep-linking to the exact screen: Step 1 Accessibility →
+   `ACTION_ACCESSIBILITY_SETTINGS` (done = settings-enabled AND
+   watcher CONNECTED); Step 2 Files →
+   `ACTION_MANAGE_APP_ALL_FILES_ACCESS_PERMISSION` (package Uri;
+   fallback `ACTION_MANAGE_ALL_FILES_ACCESS_PERMISSION`, then app
+   details); Step 3 Battery → `ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS`
+   (package Uri; fallback app details; done =
+   `PowerManager.isIgnoringBatteryOptimizations`; recommended, NOT a
+   gate — new helpers in PermissionHelper). Completed steps collapse
+   to slim "✓ …" rows; when steps 1+2 are done the wizard collapses
+   to a single "You're all set ✓" row and reopens only the missing
+   step if a required permission is revoked. The enable toggle is
+   locked until steps 1+2 are done — an early tap scrolls to +
+   flashes the wizard and toasts "Finish the setup steps first".
+   A 1.2 s delayed re-check after onResume covers watcher bind lag.
+4. **My Saved tab.** Tab row (Recent statuses | My Saved) over the
+   existing grid. My Saved queries MediaStore's Images + Video
+   collections with parameterized selection — Android 10+:
+   `RELATIVE_PATH = ? AND IS_PENDING = 0` with
+   `Pictures/StatusSaver/` resp. `Movies/StatusSaver/`; below 10:
+   `DATA LIKE '%/StatusSaver/%'` (the legacy save path). Merged,
+   sorted by DATE_ADDED desc. Thumbnails via
+   `ContentResolver.loadThumbnail` (29+), classic Thumbnails tables
+   below — no new dependencies. Tap → View / Share / Delete dialog:
+   View = ACTION_VIEW + grant-read; Share = ACTION_SEND chooser with
+   the content Uri; Delete = direct delete first, consent via
+   `MediaStore.createDeleteRequest` (30+) or
+   `RecoverableSecurityException`'s sender (29) through one
+   ActivityResult launcher.
+5. **Auto-save switch** (Prefs, default OFF). The watcher arms a
+   900 ms debounce on a false→true transition into detector MATCH
+   and cancels on exit; on fire (still matched) it runs the save
+   flow with `viaAuto = true`. Duplicate guard: SaveHelper now
+   records the last successful save's (name, length) in Prefs after
+   EVERY verified save — manual ones included — and auto-save skips
+   the newest status if it matches that record. Attempts land in the
+   same LastSave record with reason "auto" (Diagnostics shows
+   "SAVED (auto)"). Auto-save failures are recorded but not toasted
+   (no spam while browsing); a brief success toast is shown.
+
+Files touched by this pass: `StatusWatcherService.kt` (visibility,
+smart tap, auto-save), `MainActivity.kt` (wizard, tabs, My Saved,
+auto-save switch, diagnostics "(auto)" marker), `Prefs.kt`
+(auto-save flag + last-saved record), `SaveHelper.kt` (`viaAuto`
+param + last-saved update), `PermissionHelper.kt` (battery helpers,
+file-access fallbacks), `activity_main.xml` (wizard + switch + tabs),
+`strings.xml` (wizard/tabs/auto-save copy; `accessibility_desc`
+updated to package-level truth), `UPDATE_INSTRUCTIONS.md` (rewritten,
+incl. the GitHub delete steps for FloatingService.kt and the
+permanence test), `PRIVACY_POLICY.md` + `STORE_LISTING.md`
+(accessibility-engine permission wording; no more display-over-apps /
+notification claims for the button), `README.md` (final-spec state).
+
+### Residual risks (v1.3)
+- **Force-stop is still final.** If the user (or an OEM cleaner)
+  force-stops the app, Android disables the accessibility binding
+  until the user re-enables it in Settings — true for every
+  accessibility-based app; the Diagnostics card shows NOT CONNECTED
+  and card 2 is the way back.
+- **TYPE_ACCESSIBILITY_OVERLAY quirks.** The window type is documented
+  for exactly this (accessibility services placing their own UI), and
+  click delivery to such windows is standard; a handful of OEM builds
+  have historically been picky about accessibility overlays — the
+  vivo field test is the arbiter, and "Button visible now" + a status
+  screenshot separates an attach failure from a detector miss.
+- **Play Accessibility declaration** — unchanged from v1.1 §6 of the
+  README; if anything the case is stronger now (the service's purpose
+  is visibly the app's core feature).
+- **Package-level visibility (final spec)** — the button is present on
+  WhatsApp's chat list and inside chats too, by Fahad's explicit
+  choice. The smart tap keeps that harmless (explanation toast, no
+  save), but some users may find an always-present button in chats
+  noisy; the in-app toggle is the off switch. Relatedly, the
+  duplicate guard compares name + length only: two different statuses
+  with identical name and size would read as "the same file" to
+  auto-save (WhatsApp's cache names are content hashes, so a real
+  collision means it almost certainly IS the same status).
 
 ## v1.2 (2026-10-20) — diagnostic release: "button never appears" on a vivo phone
 

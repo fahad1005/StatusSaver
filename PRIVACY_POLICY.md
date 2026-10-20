@@ -11,8 +11,14 @@ advertising identifiers as described in
 
 ## What the app accesses, and why
 
-- **Display over other apps** — only to show the small floating download
-  button while you view WhatsApp statuses. Nothing is recorded or monitored.
+- **Accessibility service ("StatusSaver smart button")** — the app's
+  engine. It notices which app is in the foreground (package and window
+  names only) so it can show its small download button while WhatsApp is
+  open, and it draws that button itself as an accessibility overlay. It
+  is technically unable to read screen content (window-content access is
+  disabled in its configuration): no messages, no names, no text is ever
+  read, recorded, or monitored. You switch it on manually in Android
+  Settings, and can switch it off anytime.
 - **All files access** (Android 11+) — WhatsApp keeps viewed statuses in a
   hidden, app-specific folder (`.Statuses`) that normal gallery permissions
   cannot see. The app reads only these WhatsApp status folders, only to copy
@@ -20,9 +26,8 @@ advertising identifiers as described in
   revoked anytime in Android Settings.
 - **Storage** (Android 10 and below) — same purpose, via standard storage
   permissions.
-- **Notifications** (Android 13+) — only for the persistent "StatusSaver is
-  running" notice that keeps the floating button alive.
-- **Gallery (`Pictures/StatusSaver`)** — where your saved statuses are stored.
+- **Gallery (`Pictures/StatusSaver` and `Movies/StatusSaver`)** — where
+  your saved statuses are stored: photos in Pictures, videos in Movies.
 
 ## What we do NOT do
 

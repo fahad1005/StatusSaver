@@ -1,10 +1,53 @@
-# StatusSaver — v1.2
+# StatusSaver — v1.3
 
 **The status downloader you never have to leave WhatsApp for.**
-A small floating **download button** appears over WhatsApp **only while you
-are viewing a status**. One tap — it's saved to your gallery. When you leave
-the status, the button disappears. No switching apps, no button floating
-over your other apps.
+A small floating **download button** lives inside WhatsApp **whenever
+WhatsApp is open**. Viewing a status? One tap — it's saved to your gallery.
+When you leave WhatsApp, the button disappears. No switching apps, no
+button floating over your other apps.
+
+## What's new in v1.3 (architecture fix)
+
+v1.2's own Diagnostics card caught the real killer on the vivo test
+phone: after the phone killed the app process, Android revived the
+accessibility **watcher** but never revived the separate button service
+— toggle said ON, engine was dead, button gone forever. v1.3 removes
+the second service entirely:
+
+- **One engine.** The watcher now draws the button itself, as an
+  *accessibility overlay* (a window type Android reserves for
+  accessibility services — no "display over other apps" permission
+  needed). If the process dies, the system rebinds the watcher and it
+  restores the button from its own records. The persistent
+  "StatusSaver is running" notification is gone — there is no separate
+  service left to keep alive.
+- **Honest toggle.** The Show/Hide button now just records your choice
+  and nudges the watcher. If the watcher isn't connected, it tells you
+  "Turn on Accessibility first" instead of pretending.
+- **Button on every WhatsApp screen (final spec).** Visibility is
+  package-level: WhatsApp in the foreground = button there; anything
+  else = button gone. The status detector still runs — it now drives
+  the **smart tap** (in a status: save; anywhere else: a friendly
+  "Open a status first" explanation — never a silent no-op) and the
+  optional auto-save below.
+- **One-time Allow wizard.** First launch walks through 3 steps —
+  Accessibility → File access → Battery — each with one big Allow
+  button that deep-links to the exact system screen. Finished steps
+  collapse to slim ✓ rows; when the two required steps are done the
+  wizard becomes a single "You're all set ✓" row and only returns if
+  a required permission is later switched off.
+- **My Saved tab.** Everything you've saved, inside the app — tap an
+  item to View, Share, or Delete it (MediaStore-backed, newest first).
+- **Auto-save switch (default OFF).** "Auto-save every status I view":
+  entering the status viewer saves the newest status by itself
+  (debounced ~1 s, duplicate-guarded against your last save).
+- **Gallery visibility.** Saves now stamp the file's dates and nudge
+  the media scanner, so gallery apps surface the StatusSaver album
+  right away (in v1.2 the files were in the Files app but the Gallery
+  app lagged behind).
+- **Last save attempt, on the Diagnostics card.** Every save is
+  recorded — time, file, size, SAVED or FAILED + why (automatic saves
+  are marked) — so "did it save?" is answerable from one screenshot.
 
 ## What's new in v1.2 (diagnostic release)
 
@@ -58,20 +101,19 @@ brand-specific):
 
 | File | What it does |
 |---|---|
-| `app/src/main/java/.../MainActivity.kt` | Home screen: 4 permission cards, floating-button toggle, Diagnostics card (v1.2), status grid, ad banner |
-| `app/src/main/java/.../FloatingService.kt` | The floating button service: shows/hides the button on command, tap = save newest status; on (re)start it restores visibility from the watcher's persisted record |
-| `app/src/main/java/.../StatusWatcherService.kt` | Accessibility watcher: shows the button only while a WhatsApp status is playing; records every window it sees for the Diagnostics card |
-| `app/src/main/java/.../Prefs.kt` | Tiny local notebook (SharedPreferences): your button on/off choice + the watcher's last-seen screen record |
+| `app/src/main/java/.../MainActivity.kt` | Home screen: the 3-step Allow wizard, floating-button toggle, auto-save switch, Diagnostics card, Recent / My Saved tabs + grids, ad banner |
+| `app/src/main/java/.../StatusWatcherService.kt` | Accessibility watcher AND button engine (v1.3): draws the button itself as an accessibility overlay whenever WhatsApp is in the foreground; the status detector drives the smart tap and optional auto-save; records every window it sees for the Diagnostics card |
+| `app/src/main/java/.../Prefs.kt` | Tiny local notebook (SharedPreferences): your button on/off choice, the auto-save switch, the watcher's last-seen screen record, the last save attempt, and the last-saved file (auto-save's duplicate guard) |
 | `app/src/main/java/.../StatusScanner.kt` | Finds WhatsApp's hidden `.Statuses` folders, lists statuses newest-first |
-| `app/src/main/java/.../SaveHelper.kt` | Copies a status into your gallery: images → `Pictures/StatusSaver`, videos → `Movies/StatusSaver`, verified before reporting success |
-| `app/src/main/java/.../PermissionHelper.kt` | The 4 permission screens: overlay → file access → notifications → accessibility |
+| `app/src/main/java/.../SaveHelper.kt` | Copies a status into your gallery: images → `Pictures/StatusSaver`, videos → `Movies/StatusSaver`, verified before reporting success; stamps dates + nudges the media scanner so galleries show it at once; records every attempt |
+| `app/src/main/java/.../PermissionHelper.kt` | The wizard's system screens: accessibility, file access, battery exemption (plus legacy helpers kept for the Diagnostics record) |
 | `app/src/main/res/xml/accessibility_service_config.xml` | Watcher config: window-change events only, no screen-content access |
-| `app/src/main/AndroidManifest.xml` | The app's ID card: permissions, screens, services, AdMob app id |
+| `app/src/main/AndroidManifest.xml` | The app's ID card: permissions, screens, the watcher service, AdMob app id |
 | `app/build.gradle` | Build recipe: app id `com.fahad1005.statussaver`, libraries (incl. AdMob) |
 | `.github/workflows/build.yml` | **CI/CD**: every push to `main` auto-builds an APK you can download |
 | `PRIVACY_POLICY.md` | Required for the Play Store: we collect nothing |
 | `STORE_LISTING.md` | App name, description, screenshot plan, localization notes |
-| `UPDATE_INSTRUCTIONS.md` | Step-by-step: how to upload the v1.2 changed files to GitHub and test them |
+| `UPDATE_INSTRUCTIONS.md` | Step-by-step: how to upload the v1.3 changed files to GitHub and test them |
 
 ## How to get these files into YOUR GitHub repo (5 min)
 
@@ -141,38 +183,42 @@ publish time you must submit the Accessibility declaration explaining the
 use, and the app's core purpose must justify it. Have this text ready:
 
 > StatusSaver uses the Accessibility API for one purpose only: detecting
-> when WhatsApp's status-viewing screen is in the foreground, so its
-> download button is shown only at that moment and hidden everywhere
-> else. The service observes window-change events (package and activity
+> when WhatsApp is in the foreground, so its download button can be
+> shown inside WhatsApp (and hidden everywhere else), and detecting
+> the status-viewing screen so a tap saves the status being viewed.
+> The service observes window-change events (package and activity
 > class names). It does not retrieve window content
 > (canRetrieveWindowContent is disabled), does not read text, does not
 > perform gestures, and collects no data.
 
 Note: there is a real chance Google restricts or rejects Accessibility
-use for this category — if that happens, the fallback is the v1 behaviour
-(button toggleable manually from the persistent notification). Decide at
-publish time with the reviewer feedback in hand; it does not block
-sideload testing or development.
+use for this category — if that happens, the fallback would be a
+manual-toggle build without status detection (the pre-v1.1 design,
+recoverable from git history). Decide at publish time with the reviewer
+feedback in hand; it does not block sideload testing or development.
 
 ### 7. Test on a real phone first
-Install the debug APK on your own phone. Grant the 4 permissions — the new
-one is **Accessibility**: in the app tap card 4 → Android Settings →
-Accessibility → **Installed apps** → **StatusSaver** → turn it ON (Android
-shows a warning screen first; that's normal). Then view a WhatsApp status:
-the green button should appear at the bottom-right, and disappear when
-you leave the status. Tap it → check the gallery (photos in
-`Pictures/StatusSaver`, videos in `Movies/StatusSaver`). If the button
-misbehaves, check the **Diagnostics card** on the home screen (see
-"Reading the Diagnostics card" below) and do your brand's row in the
-battery table above it.
+Install the debug APK on your own phone and follow the in-app **Allow
+wizard**: Step 1 **Accessibility** (its Allow button opens Android
+Settings → Accessibility → **Installed apps** → **StatusSaver smart
+button** → turn it ON; Android shows a warning screen first, that's
+normal), Step 2 **File access**, Step 3 **Battery** (recommended).
+Then tap **Show floating button**, open WhatsApp: the green button
+sits at the bottom-right on every WhatsApp screen, and disappears when
+you leave WhatsApp. Open a status and tap it → check the gallery
+(photos in `Pictures/StatusSaver`, videos in `Movies/StatusSaver`) or
+the app's **My Saved** tab. If the button misbehaves, check the
+**Diagnostics card** on the home screen (see "Reading the Diagnostics
+card" below) and do your brand's row in the battery table above it.
 
 ## Keep the watcher alive — battery settings per phone brand
 
-The Accessibility watcher and the floating-button service must be allowed
-to run in the **background**. Many phones ship with aggressive battery
-managers that disconnect them — the Settings switch still says "On",
-but nothing works. This is the most common cause of "the button never
-appears", on every brand. Find your brand and do its row once:
+The Accessibility watcher (which, since v1.3, is the whole button
+engine) must be allowed to run in the **background**. Many phones ship
+with aggressive battery managers that disconnect it — the Settings
+switch still says "On", but nothing works. This is the most common
+cause of "the button never appears", on every brand. Find your brand
+and do its row once:
 
 | Phone brand | What to allow |
 |---|---|
@@ -188,28 +234,33 @@ The Diagnostics card tells you if this is your problem: if **Watcher**
  flips to **NOT CONNECTED** after the phone sits idle, the battery
 manager disconnected it — redo your brand's row above.
 
-## Reading the Diagnostics card (v1.2)
+## Reading the Diagnostics card (v1.3)
 
 | Row | Healthy | If not |
 |---|---|---|
-| Overlay permission | ON | Grant card 1 (Display over other apps) |
+| Overlay permission | anything — labelled *legacy, not required since v1.3* | Ignore this row; the button is an accessibility overlay now |
 | Accessibility switch | ON (in Settings) | Settings → Accessibility → Installed apps → StatusSaver → ON |
-| Watcher | CONNECTED | Switch says On but the service isn't bound — toggle it Off/On, and check the battery table above |
-| Floating service | RUNNING | Tap "Show floating button" on the home screen |
+| Watcher | CONNECTED | Switch says On but the watcher isn't bound — toggle it Off/On, and check the battery table above |
+| Button engine | WATCHER · ALIVE | Same fact as the Watcher row: the watcher IS the engine — if it's DEAD, see the row above |
+| Button visible now | YES while WhatsApp is on screen, NO everywhere else | If WhatsApp is open and this says NO, the watcher or the toggle is the problem — see the rows above |
 | Last seen screen | `com.whatsapp / …Status… (MATCH)` from seconds ago after viewing a status | **NO MATCH** = the row names the exact screen your WhatsApp version uses — that name is the fix (it goes into the detector) |
+| Last save attempt | `… · file.mp4 · 3.21 MB · SAVED` | FAILED shows the reason in brackets. If it says SAVED but your Gallery app hides it, check the Files app (Internal storage → Pictures/Movies → StatusSaver) — the file is there; it's the gallery's indexing |
 
 ## How it works (the 30-second version)
 
 1. You view statuses in WhatsApp. WhatsApp quietly caches them in a hidden
    folder on your phone.
-2. The watcher notices WhatsApp's status player is on screen and shows
-   the green button, bottom-right. Tap it → we copy the **newest** cached
-   file into your gallery (`Pictures/StatusSaver` for photos,
-   `Movies/StatusSaver` for videos) and verify the copy before the
-   "Saved ✓" message.
-3. Leave the status and the button hides again.
+2. The watcher notices WhatsApp is open and shows the green button,
+   bottom-right, on every WhatsApp screen. While you're **viewing a
+   status**, tap it → we copy the **newest** cached file into your
+   gallery (`Pictures/StatusSaver` for photos, `Movies/StatusSaver`
+   for videos) and verify the copy before the "Saved ✓" message.
+   (Tapped anywhere else, it just explains: "Open a status first".)
+3. Leave WhatsApp and the button hides again.
 4. If the newest file is older than ~2 minutes, we still save it but tell
-   you which file it was (it's a heuristic — see `FloatingService.kt`).
+   you which file it was (it's a heuristic — see `StatusWatcherService.kt`).
+5. Turn on **Auto-save** and step 2 happens by itself: opening a status
+   saves it, no tap — never twice for the same file.
 
 ## Please respect others
 Statuses are someone's personal moments. Save your own, or save with the

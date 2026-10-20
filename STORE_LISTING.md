@@ -12,7 +12,8 @@ Tired of leaving WhatsApp to save a status? StatusSaver puts a small floating
 it's in your gallery. No switching apps, no hunting through folders.
 
 - One-tap save with the floating button — never leave WhatsApp
-- Saves photos and videos to your gallery (Pictures/StatusSaver)
+- Optional auto-save: statuses you view save themselves
+- Saves photos and videos to your gallery (photos: Pictures/StatusSaver, videos: Movies/StatusSaver), with a built-in library to view, share, and delete them
 - Clean design, no shady popups
 - Works fully on your device — your data never leaves your phone
 
@@ -30,7 +31,7 @@ Everyone
 ## Data safety (Play Console answers)
 - Data collected: **none**
 - Data shared: **none**
-- Permissions: display-over-apps (floating button), all-files access (reads only WhatsApp's hidden status folders), notifications (keeps the button alive)
+- Permissions: accessibility service (shows the save button inside WhatsApp; detects the foreground window only — package and window names — and reads no screen content), all-files access (reads only WhatsApp's hidden status folders)
 
 ## Localization plan (BEFORE publish — agreed 2026-10-18)
 Priority order: **Urdu → Hindi → Arabic → Portuguese → English polish.**
