@@ -1,7 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- Round teal background for the floating download button. -->
+<!-- Round WhatsApp-green background for the floating download button (v1.1). -->
 <shape xmlns:android="http://schemas.android.com/apk/res/android"
     android:shape="oval">
-    <solid android:color="@color/teal_500" />
-    <stroke android:width="2dp" android:color="@color/white" />
+    <solid android:color="@color/whatsapp_green" />
 </shape>

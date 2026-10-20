@@ -61,5 +61,23 @@
                 android:value="Floating download button for saving WhatsApp statuses" />
         </service>
 
+        <!-- v1.1: watches the foreground window so the floating button shows
+             ONLY while a WhatsApp status is playing. Reads package + activity
+             class names only (canRetrieveWindowContent=false in the config —
+             it cannot see any on-screen content). The user enables it manually
+             in Android Settings → Accessibility → Installed apps → StatusSaver. -->
+        <service
+            android:name=".StatusWatcherService"
+            android:exported="false"
+            android:label="@string/accessibility_label"
+            android:permission="android.permission.BIND_ACCESSIBILITY_SERVICE">
+            <intent-filter>
+                <action android:name="android.accessibilityservice.AccessibilityService" />
+            </intent-filter>
+            <meta-data
+                android:name="android.accessibilityservice"
+                android:resource="@xml/accessibility_service_config" />
+        </service>
+
     </application>
 </manifest>

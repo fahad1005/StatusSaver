@@ -20,7 +20,8 @@ import com.google.android.gms.ads.AdView
 import com.google.android.gms.ads.MobileAds
 
 // MainActivity: the app's home screen.
-// 1) First-run permission cards (overlay → files → notifications), in order.
+// 1) First-run permission cards (overlay → files → notifications →
+//    accessibility), in order.
 // 2) A toggle to show/hide the floating download button.
 // 3) A grid of detected statuses, each with its own Save button.
 // 4) A banner ad at the bottom (test ads until you add your own AdMob IDs).
@@ -29,6 +30,7 @@ class MainActivity : AppCompatActivity() {
     private lateinit var cardOverlay: LinearLayout
     private lateinit var cardFiles: LinearLayout
     private lateinit var cardNotifications: LinearLayout
+    private lateinit var cardAccessibility: LinearLayout
     private lateinit var btnToggle: Button
     private lateinit var recycler: RecyclerView
     private lateinit var emptyText: TextView
@@ -44,6 +46,7 @@ class MainActivity : AppCompatActivity() {
         cardOverlay = findViewById(R.id.cardOverlay)
         cardFiles = findViewById(R.id.cardFiles)
         cardNotifications = findViewById(R.id.cardNotifications)
+        cardAccessibility = findViewById(R.id.cardAccessibility)
         btnToggle = findViewById(R.id.btnToggle)
         recycler = findViewById(R.id.recycler)
         emptyText = findViewById(R.id.emptyText)
@@ -61,6 +64,9 @@ class MainActivity : AppCompatActivity() {
         }
         findViewById<Button>(R.id.btnGrantNotifications).setOnClickListener {
             PermissionHelper.requestNotificationPermission(this)
+        }
+        findViewById<Button>(R.id.btnGrantAccessibility).setOnClickListener {
+            PermissionHelper.requestAccessibilitySettings(this)
         }
         btnToggle.setOnClickListener { toggleFloatingService() }
 
@@ -85,6 +91,8 @@ class MainActivity : AppCompatActivity() {
             if (PermissionHelper.hasFileAccess(this)) View.GONE else View.VISIBLE
         cardNotifications.visibility =
             if (PermissionHelper.hasNotificationPermission(this)) View.GONE else View.VISIBLE
+        cardAccessibility.visibility =
+            if (PermissionHelper.isAccessibilityEnabled(this)) View.GONE else View.VISIBLE
     }
 
     private fun toggleFloatingService() {
@@ -93,7 +101,8 @@ class MainActivity : AppCompatActivity() {
             stopService(intent)
         } else {
             if (!PermissionHelper.hasOverlayPermission(this) ||
-                !PermissionHelper.hasFileAccess(this)
+                !PermissionHelper.hasFileAccess(this) ||
+                !PermissionHelper.isAccessibilityEnabled(this)
             ) {
                 Toast.makeText(
                     this, getString(R.string.grant_first), Toast.LENGTH_SHORT
@@ -170,7 +179,7 @@ class MainActivity : AppCompatActivity() {
             }.start()
             h.btnSave.setOnClickListener {
                 Thread {
-                    val ok = SaveHelper.saveToGallery(this@MainActivity, item.file)
+                    val ok = SaveHelper.saveToGallery(this@MainActivity, item.file, item.isVideo)
                     runOnUiThread {
                         Toast.makeText(
                             this@MainActivity,

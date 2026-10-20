@@ -2,6 +2,7 @@ package com.fahad1005.statussaver
 
 import android.Manifest
 import android.app.Activity
+import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
@@ -12,8 +13,9 @@ import android.provider.Settings
 import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
 
-// PermissionHelper: all three "scary permission screens" in one place.
-// The main screen asks for them in order: overlay → files → notifications.
+// PermissionHelper: all four "scary permission screens" in one place.
+// The main screen asks for them in order:
+// overlay → files → notifications → accessibility (v1.1).
 object PermissionHelper {
 
     private const val REQ_NOTIFICATIONS = 1001
@@ -82,5 +84,30 @@ object PermissionHelper {
                 REQ_NOTIFICATIONS
             )
         }
+    }
+
+    // 4) Accessibility (v1.1) — NOT a "permission" Android grants in-app.
+    //    The user must switch StatusWatcherService on by hand in
+    //    Settings → Accessibility → Installed apps → StatusSaver.
+    //    It is what makes the floating button appear only while a
+    //    WhatsApp status is playing (and never over other apps).
+    fun isAccessibilityEnabled(context: Context): Boolean {
+        val expected = ComponentName(context, StatusWatcherService::class.java)
+        val enabledList = Settings.Secure.getString(
+            context.contentResolver,
+            Settings.Secure.ENABLED_ACCESSIBILITY_SERVICES
+        ) ?: return false
+        // The setting is a colon-separated list of flattened component
+        // names. Android stores them in long ("pkg/full.Class") or short
+        // ("pkg/.Class") form depending on the device — accept both.
+        val candidates = setOf(
+            expected.flattenToString().lowercase(),
+            expected.flattenToShortString().lowercase()
+        )
+        return enabledList.split(':').any { it.trim().lowercase() in candidates }
+    }
+
+    fun requestAccessibilitySettings(activity: Activity) {
+        activity.startActivity(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS))
     }
 }

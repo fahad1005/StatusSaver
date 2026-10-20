@@ -124,6 +124,36 @@
                     android:text="@string/btn_allow_notif" />
             </LinearLayout>
 
+            <!-- Card 4: accessibility (v1.1) — button shows only during status viewing -->
+            <LinearLayout
+                android:id="@+id/cardAccessibility"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="8dp"
+                android:orientation="vertical"
+                android:padding="12dp"
+                android:background="@color/white">
+
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="@string/card_accessibility_title"
+                    android:textStyle="bold" />
+
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="@string/card_accessibility_text"
+                    android:textSize="13sp" />
+
+                <Button
+                    android:id="@+id/btnGrantAccessibility"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="8dp"
+                    android:text="@string/btn_allow_accessibility" />
+            </LinearLayout>
+
             <!-- Floating-button toggle -->
             <Button
                 android:id="@+id/btnToggle"

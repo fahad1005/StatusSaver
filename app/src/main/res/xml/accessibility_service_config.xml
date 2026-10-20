@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  StatusWatcherService config (v1.1).
+
+  - Listens ONLY for window-state changes (which app/activity came to front).
+  - canRetrieveWindowContent is FALSE: the service cannot read anything on
+    the screen — no text, no names, no messages. It only learns "WhatsApp's
+    status player is/isn't the foreground window".
+  - packageNames is deliberately NOT restricted: the watcher must also see
+    windows from OTHER apps, otherwise it could never learn that the user
+    left WhatsApp and the button would stay on screen. Filtering happens in
+    code instead (StatusWatcherService).
+-->
+<accessibility-service xmlns:android="http://schemas.android.com/apk/res/android"
+    android:accessibilityEventTypes="typeWindowStateChanged"
+    android:accessibilityFeedbackType="feedbackGeneric"
+    android:accessibilityFlags="flagDefault"
+    android:canRetrieveWindowContent="false"
+    android:description="@string/accessibility_desc"
+    android:notificationTimeout="50"
+    android:settingsActivity="com.fahad1005.statussaver.MainActivity" />

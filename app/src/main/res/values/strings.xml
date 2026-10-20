@@ -8,7 +8,7 @@
     <string name="banner_ad_unit_id">ca-app-pub-3940256099942544/6300978111</string>
 
     <string name="onboarding_title">Save any WhatsApp status in one tap</string>
-    <string name="onboarding_sub">First, grant 3 permissions. Then the floating SAVE button is yours.</string>
+    <string name="onboarding_sub">First, grant 4 permissions. Then the floating SAVE button is yours — and it only appears while you are watching a status.</string>
 
     <string name="card_overlay_title">1. Display over other apps</string>
     <string name="card_overlay_text">Lets the small SAVE button hover over WhatsApp while you view statuses.</string>
@@ -21,6 +21,14 @@
     <string name="card_notif_title">3. Notifications</string>
     <string name="card_notif_text">Android 13+ needs this so the floating button can stay alive in the background.</string>
     <string name="btn_allow_notif">Allow notifications</string>
+
+    <string name="card_accessibility_title">4. Accessibility — smart button</string>
+    <string name="card_accessibility_text">Lets the button appear ONLY while a WhatsApp status is playing, and stay hidden everywhere else. StatusSaver watches which screen is open — it cannot read your messages or anything on screen. In Settings, open Accessibility → Installed apps → StatusSaver and turn it on.</string>
+    <string name="btn_allow_accessibility">Open Accessibility settings</string>
+
+    <string name="accessibility_label">StatusSaver smart button</string>
+    <string name="accessibility_desc">Shows the StatusSaver download button only while you are viewing a WhatsApp status, and hides it on every other screen. It detects which app window is open only — it does not read screen content.</string>
+    <string name="floating_button_desc">Save this status</string>
 
     <string name="show_button">Show floating button</string>
     <string name="hide_button">Hide floating button</string>
@@ -38,5 +46,5 @@
     <string name="saved_which_file">Saved \"%1$s\" (from %2$d min ago) ✓</string>
 
     <string name="notif_title">StatusSaver is running</string>
-    <string name="notif_text">Tap to hide the floating button</string>
+    <string name="notif_text">The SAVE button appears while you view a WhatsApp status. Tap to stop.</string>
 </resources>
