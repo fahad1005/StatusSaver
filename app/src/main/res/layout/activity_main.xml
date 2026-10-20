@@ -1,7 +1,12 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!--
-  Main screen: permission cards → floating-button toggle →
-  status grid → banner ad. All ids are used by MainActivity.kt.
+  Main screen: one-time Allow wizard (3 steps) → floating-button
+  toggle → auto-save switch → Diagnostics card → tabs (Recent | My
+  Saved) + grid → banner ad. All ids are used by MainActivity.kt.
+  v1.3 final spec: the old permission cards became the wizard; the
+  overlay and notification cards are gone for good — they belonged to
+  the retired FloatingService; the accessibility watcher owns the
+  button now.
 -->
 <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:ads="http://schemas.android.com/apk/res-auto"
@@ -10,6 +15,7 @@
     android:orientation="vertical">
 
     <ScrollView
+        android:id="@+id/scrollView"
         android:layout_width="match_parent"
         android:layout_height="0dp"
         android:layout_weight="1">
@@ -34,9 +40,9 @@
                 android:text="@string/onboarding_sub"
                 android:textSize="14sp" />
 
-            <!-- Card 1: overlay permission -->
+            <!-- ============ One-time Allow wizard ============ -->
             <LinearLayout
-                android:id="@+id/cardOverlay"
+                android:id="@+id/wizardContainer"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:layout_marginTop="12dp"
@@ -45,122 +51,132 @@
                 android:background="@color/white">
 
                 <TextView
+                    android:id="@+id/wizardTitle"
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
-                    android:text="@string/card_overlay_title"
+                    android:text="@string/wizard_title"
                     android:textStyle="bold" />
 
+                <!-- Shown only when both required steps are done. -->
                 <TextView
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:text="@string/card_overlay_text"
-                    android:textSize="13sp" />
-
-                <Button
-                    android:id="@+id/btnGrantOverlay"
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:layout_marginTop="8dp"
-                    android:text="@string/btn_allow_overlay" />
-            </LinearLayout>
-
-            <!-- Card 2: file access -->
-            <LinearLayout
-                android:id="@+id/cardFiles"
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:layout_marginTop="8dp"
-                android:orientation="vertical"
-                android:padding="12dp"
-                android:background="@color/white">
-
-                <TextView
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:text="@string/card_files_title"
-                    android:textStyle="bold" />
-
-                <TextView
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:text="@string/card_files_text"
-                    android:textSize="13sp" />
-
-                <Button
-                    android:id="@+id/btnGrantFiles"
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:layout_marginTop="8dp"
-                    android:text="@string/btn_allow_files" />
-            </LinearLayout>
-
-            <!-- Card 3: notifications (Android 13+) -->
-            <LinearLayout
-                android:id="@+id/cardNotifications"
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:layout_marginTop="8dp"
-                android:orientation="vertical"
-                android:padding="12dp"
-                android:background="@color/white">
-
-                <TextView
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:text="@string/card_notif_title"
-                    android:textStyle="bold" />
-
-                <TextView
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:text="@string/card_notif_text"
-                    android:textSize="13sp" />
-
-                <Button
-                    android:id="@+id/btnGrantNotifications"
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:layout_marginTop="8dp"
-                    android:text="@string/btn_allow_notif" />
-            </LinearLayout>
-
-            <!-- Card 4: accessibility (v1.1) — button shows only during status viewing -->
-            <LinearLayout
-                android:id="@+id/cardAccessibility"
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:layout_marginTop="8dp"
-                android:orientation="vertical"
-                android:padding="12dp"
-                android:background="@color/white">
-
-                <TextView
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:text="@string/card_accessibility_title"
-                    android:textStyle="bold" />
-
-                <TextView
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:text="@string/card_accessibility_text"
-                    android:textSize="13sp" />
-
-                <!-- v1.2: universal battery hint (all brands) — the full
-                     per-brand steps live in the README's battery table. -->
-                <TextView
+                    android:id="@+id/wizardAllSet"
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
                     android:layout_marginTop="6dp"
-                    android:text="@string/card_accessibility_battery"
-                    android:textSize="13sp" />
+                    android:text="@string/all_set"
+                    android:textSize="14sp"
+                    android:visibility="gone" />
 
-                <Button
-                    android:id="@+id/btnGrantAccessibility"
+                <!-- Step 1: Accessibility -->
+                <LinearLayout
+                    android:id="@+id/stepAccessibility"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="10dp"
+                    android:orientation="vertical">
+
+                    <TextView
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text="@string/step1_title"
+                        android:textStyle="bold" />
+
+                    <TextView
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text="@string/step1_text"
+                        android:textSize="13sp" />
+
+                    <Button
+                        android:id="@+id/btnStepAccessibility"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="8dp"
+                        android:text="@string/btn_allow" />
+                </LinearLayout>
+
+                <TextView
+                    android:id="@+id/stepAccessibilityDone"
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
-                    android:layout_marginTop="8dp"
-                    android:text="@string/btn_allow_accessibility" />
+                    android:layout_marginTop="10dp"
+                    android:text="@string/done_accessibility"
+                    android:textSize="14sp"
+                    android:visibility="gone" />
+
+                <!-- Step 2: File access -->
+                <LinearLayout
+                    android:id="@+id/stepFiles"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="10dp"
+                    android:orientation="vertical">
+
+                    <TextView
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text="@string/step2_title"
+                        android:textStyle="bold" />
+
+                    <TextView
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text="@string/step2_text"
+                        android:textSize="13sp" />
+
+                    <Button
+                        android:id="@+id/btnStepFiles"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="8dp"
+                        android:text="@string/btn_allow" />
+                </LinearLayout>
+
+                <TextView
+                    android:id="@+id/stepFilesDone"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="10dp"
+                    android:text="@string/done_files"
+                    android:textSize="14sp"
+                    android:visibility="gone" />
+
+                <!-- Step 3: Battery (recommended, not a hard gate) -->
+                <LinearLayout
+                    android:id="@+id/stepBattery"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="10dp"
+                    android:orientation="vertical">
+
+                    <TextView
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text="@string/step3_title"
+                        android:textStyle="bold" />
+
+                    <TextView
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text="@string/step3_text"
+                        android:textSize="13sp" />
+
+                    <Button
+                        android:id="@+id/btnStepBattery"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="8dp"
+                        android:text="@string/btn_allow" />
+                </LinearLayout>
+
+                <TextView
+                    android:id="@+id/stepBatteryDone"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="10dp"
+                    android:text="@string/done_battery"
+                    android:textSize="14sp"
+                    android:visibility="gone" />
             </LinearLayout>
 
             <!-- Floating-button toggle -->
@@ -171,11 +187,35 @@
                 android:layout_marginTop="16dp"
                 android:text="@string/show_button" />
 
-            <!-- v1.2 Diagnostics card: one monospace row per link in the
-                 chain (permission → watcher → service → last screen).
-                 Refreshes every time this screen appears. If the button
-                 misbehaves, screenshot this card or tap Copy — it names
-                 the exact WhatsApp screen, no logcat needed. -->
+            <!-- Auto-save switch -->
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="8dp"
+                android:orientation="vertical"
+                android:padding="12dp"
+                android:background="@color/white">
+
+                <androidx.appcompat.widget.SwitchCompat
+                    android:id="@+id/switchAutoSave"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:text="@string/autosave_label"
+                    android:textSize="15sp" />
+
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="4dp"
+                    android:text="@string/autosave_hint"
+                    android:textSize="13sp" />
+            </LinearLayout>
+
+            <!-- Diagnostics card: one monospace row per link in the
+                 chain (watcher → button engine → button visible → last
+                 screen → last save). Refreshes every time this screen
+                 appears. If anything misbehaves, screenshot this card
+                 or tap Copy — no logcat needed. -->
             <LinearLayout
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
@@ -213,7 +253,14 @@
                     android:textSize="12sp" />
 
                 <TextView
-                    android:id="@+id/diagFloating"
+                    android:id="@+id/diagEngine"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:fontFamily="monospace"
+                    android:textSize="12sp" />
+
+                <TextView
+                    android:id="@+id/diagVisible"
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
                     android:fontFamily="monospace"
@@ -221,6 +268,13 @@
 
                 <TextView
                     android:id="@+id/diagLastScreen"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:fontFamily="monospace"
+                    android:textSize="12sp" />
+
+                <TextView
+                    android:id="@+id/diagLastSave"
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
                     android:fontFamily="monospace"
@@ -234,10 +288,34 @@
                     android:text="@string/btn_copy_diagnostics" />
             </LinearLayout>
 
-            <TextView
-                android:layout_width="wrap_content"
+            <!-- Tabs: Recent statuses | My Saved -->
+            <LinearLayout
+                android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:layout_marginTop="16dp"
+                android:orientation="horizontal">
+
+                <Button
+                    android:id="@+id/tabRecent"
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:text="@string/tab_recent" />
+
+                <Button
+                    android:id="@+id/tabSaved"
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_marginLeft="8dp"
+                    android:layout_weight="1"
+                    android:text="@string/tab_saved" />
+            </LinearLayout>
+
+            <TextView
+                android:id="@+id/statusesHeader"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="12dp"
                 android:text="@string/statuses_header"
                 android:textSize="18sp"
                 android:textStyle="bold" />

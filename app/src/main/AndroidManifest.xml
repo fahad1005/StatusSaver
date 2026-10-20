@@ -1,11 +1,16 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!--
   StatusSaver manifest — the app's ID card.
-  Declares: permissions, the main screen, the floating-button service, AdMob.
+  Declares: permissions, the main screen, the watcher service (which also
+  owns the floating button since v1.3), AdMob.
 -->
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
 
-    <!-- Floating button draws over WhatsApp -->
+    <!-- Legacy: v1–v1.2 drew the button through a foreground service with
+         this permission. Since v1.3 the button is an ACCESSIBILITY
+         overlay owned by StatusWatcherService and needs no overlay
+         permission. Kept declared for now (harmless; the Diagnostics
+         card labels it "not required since v1.3") — see BUILD_NOTES. -->
     <uses-permission android:name="android.permission.SYSTEM_ALERT_WINDOW" />
     <!-- Read WhatsApp's hidden .Statuses folders (Android 11+ needs the special screen) -->
     <uses-permission android:name="android.permission.MANAGE_EXTERNAL_STORAGE" />
@@ -17,12 +22,10 @@
     <!-- Media access on Android 13+ -->
     <uses-permission android:name="android.permission.READ_MEDIA_IMAGES" />
     <uses-permission android:name="android.permission.READ_MEDIA_VIDEO" />
-    <!-- Keeps the floating button alive -->
-    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
-    <!-- Required on Android 14+ because our service type is "specialUse" -->
-    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SPECIAL_USE" />
-    <!-- Needed on Android 13+ for the service's notification -->
-    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+    <!-- v1.3: FOREGROUND_SERVICE, FOREGROUND_SERVICE_SPECIAL_USE and
+         POST_NOTIFICATIONS were removed — they existed only for the
+         retired FloatingService and its persistent notification, and
+         nothing else in the app (AdMob included) needs them. -->
 
     <application
         android:allowBackup="true"
@@ -49,23 +52,18 @@
             </intent-filter>
         </activity>
 
-        <!-- The floating download button. "specialUse" is the honest foreground-service
-             type for a floating overlay button; the property tag below is required
-             by Android 14+ and describes what the service does. -->
-        <service
-            android:name=".FloatingService"
-            android:exported="false"
-            android:foregroundServiceType="specialUse">
-            <property
-                android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
-                android:value="Floating download button for saving WhatsApp statuses" />
-        </service>
-
-        <!-- v1.1: watches the foreground window so the floating button shows
-             ONLY while a WhatsApp status is playing. Reads package + activity
-             class names only (canRetrieveWindowContent=false in the config —
-             it cannot see any on-screen content). The user enables it manually
-             in Android Settings → Accessibility → Installed apps → StatusSaver. -->
+        <!-- v1.1: watches the foreground window (package + activity class
+             names only — canRetrieveWindowContent=false in the config, so
+             it cannot see any on-screen content) to show the button at the
+             right moment. The user enables it manually in Android
+             Settings → Accessibility → Installed apps → StatusSaver.
+             v1.3: this service also OWNS the button (an accessibility
+             overlay window) and the tap-to-save action — the separate
+             FloatingService foreground service was retired because OEM
+             battery managers killed it and Android never revived it,
+             while the system keeps this watcher bound. Final spec: the
+             button shows whenever WhatsApp is in the foreground; the
+             status-viewer detection drives the tap and auto-save. -->
         <service
             android:name=".StatusWatcherService"
             android:exported="false"

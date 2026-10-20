@@ -20,25 +20,73 @@ import java.io.File
 // on Android 10+, the MediaStore row queried back with matching size
 // and MIME type. Any failure returns false so callers show an honest
 // error toast instead of a fake "Saved ✓".
+//
+// v1.3 additions:
+//  - Every attempt (success OR failure, with the failure's reason) is
+//    recorded in Prefs, so the Diagnostics card can answer "did it
+//    save?" from one screenshot.
+//  - Gallery visibility: the MediaStore insert now carries DATE_TAKEN
+//    and DATE_ADDED, and after the verified publish we also hand the
+//    file to MediaScannerConnection. On the v1.2 field test the files
+//    WERE in the Files app immediately but the phone's Gallery app
+//    didn't surface them — OEM galleries lean on these dates and on
+//    scanner indexing, so we now feed both.
 object SaveHelper {
 
     private const val TAG = "SaveHelper"
 
-    fun saveToGallery(context: Context, file: File, isVideo: Boolean): Boolean {
-        return try {
-            val ok = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+    // viaAuto (final spec): true when the watcher saved on its own
+    // because the user turned on "Auto-save every status I view". The
+    // attempt is then recorded with reason "auto" so the Diagnostics
+    // card can tell automatic saves from tapped ones.
+    fun saveToGallery(
+        context: Context,
+        file: File,
+        isVideo: Boolean,
+        viaAuto: Boolean = false
+    ): Boolean {
+        var failureReason = ""
+        val ok = try {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
                 saveViaMediaStore(context, file, isVideo)
             } else {
                 saveLegacy(context, file)
             }
-            if (!ok) {
-                Log.e(TAG, "Save reported failure for ${file.name}")
-            }
-            ok
         } catch (e: Exception) {
             Log.e(TAG, "Save failed for ${file.name}", e)
+            failureReason = e.message ?: e.javaClass.simpleName
             false
         }
+        if (!ok && failureReason.isEmpty()) {
+            failureReason = "copy or verification failed"
+        }
+        // v1.3: record the attempt for the Diagnostics card. Guarded —
+        // bookkeeping must never break the save path itself.
+        try {
+            val reason = when {
+                ok && viaAuto -> "auto"
+                ok -> ""
+                viaAuto -> "auto: $failureReason"
+                else -> failureReason
+            }
+            Prefs.saveLastSaveAttempt(
+                context,
+                System.currentTimeMillis(),
+                file.name,
+                file.length(),
+                ok,
+                reason
+            )
+            // Final spec: remember WHICH file was saved (any path —
+            // button, grid, automatic) so auto-save's duplicate guard
+            // can skip re-saving the very same file.
+            if (ok) {
+                Prefs.saveLastSavedFile(context, file.name, file.length())
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "Could not record save attempt", e)
+        }
+        return ok
     }
 
     // MIME type for the file. Videos are ALWAYS typed as video/* — v1 used
@@ -82,6 +130,12 @@ object SaveHelper {
             put(MediaStore.MediaColumns.MIME_TYPE, mime)
             put(MediaStore.MediaColumns.RELATIVE_PATH, relativePath)
             put(MediaStore.MediaColumns.IS_PENDING, 1)
+            // v1.3 gallery visibility: DATE_TAKEN is in MILLIseconds,
+            // DATE_ADDED in SECONDS (MediaStore's units — do not swap
+            // them). Some OEM gallery apps sort/filter albums by these
+            // columns and were slow to surface rows that lacked them.
+            put(MediaStore.MediaColumns.DATE_TAKEN, file.lastModified())
+            put(MediaStore.MediaColumns.DATE_ADDED, System.currentTimeMillis() / 1000)
         }
         val uri: Uri = resolver.insert(collection, values)
             ?: throw IllegalStateException("MediaStore insert returned null")
@@ -129,6 +183,31 @@ object SaveHelper {
             if (!verified) {
                 throw IllegalStateException("MediaStore row failed verification")
             }
+
+            // v1.3 gallery visibility, part 2: even with a correct,
+            // verified MediaStore row, some OEM galleries only pick new
+            // files up when the media scanner walks them. Resolve the
+            // row's real path (_data) and hand it to the scanner. Best
+            // effort only — the save is already verified above, so a
+            // missing path or a scanner hiccup must not fail it.
+            try {
+                val path = resolver.query(
+                    uri, arrayOf(MediaStore.MediaColumns.DATA), null, null, null
+                )?.use { c ->
+                    if (c.moveToFirst()) {
+                        c.getString(c.getColumnIndexOrThrow(MediaStore.MediaColumns.DATA))
+                    } else {
+                        null
+                    }
+                }
+                if (!path.isNullOrEmpty()) {
+                    MediaScannerConnection.scanFile(
+                        context.applicationContext, arrayOf(path), arrayOf(mime), null
+                    )
+                }
+            } catch (e: Exception) {
+                Log.w(TAG, "MediaScanner nudge skipped", e)
+            }
             return true
         } catch (e: Exception) {
             // Never leave a half-written/pending row behind — it can show
@@ -157,8 +236,12 @@ object SaveHelper {
             }
         }
         if (copied != file.length() || !dest.exists()) {
-            Log.e(TAG, "Legacy copy incomplete: $copied of ${file.length()} bytes")
-            return false
+            // Thrown (not returned) so saveToGallery can record WHY the
+            // save failed in the Diagnostics record — same false result
+            // for the caller, better evidence.
+            throw IllegalStateException(
+                "Legacy copy incomplete: $copied of ${file.length()} bytes"
+            )
         }
         MediaScannerConnection.scanFile(context, arrayOf(dest.absolutePath), null, null)
         return true

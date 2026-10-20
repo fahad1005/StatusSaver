@@ -4,8 +4,9 @@
 
   - Listens ONLY for window-state changes (which app/activity came to front).
   - canRetrieveWindowContent is FALSE: the service cannot read anything on
-    the screen — no text, no names, no messages. It only learns "WhatsApp's
-    status player is/isn't the foreground window".
+    the screen — no text, no names, no messages. It only learns which app
+    and window are in the foreground (WhatsApp open or not; status player
+    or not).
   - packageNames is deliberately NOT restricted: the watcher must also see
     windows from OTHER apps, otherwise it could never learn that the user
     left WhatsApp and the button would stay on screen. Filtering happens in

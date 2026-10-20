@@ -8,48 +8,65 @@
     <string name="banner_ad_unit_id">ca-app-pub-3940256099942544/6300978111</string>
 
     <string name="onboarding_title">Save any WhatsApp status in one tap</string>
-    <string name="onboarding_sub">First, grant 4 permissions. Then the floating SAVE button is yours — and it only appears while you are watching a status.</string>
+    <string name="onboarding_sub">A few quick taps and you\'re set — the green button then lives inside WhatsApp, ready whenever you are.</string>
 
-    <string name="card_overlay_title">1. Display over other apps</string>
-    <string name="card_overlay_text">Lets the small SAVE button hover over WhatsApp while you view statuses.</string>
-    <string name="btn_allow_overlay">Allow display over apps</string>
+    <!-- One-time Allow wizard (final spec): three steps, one big Allow
+         button each, every step deep-links to the exact system screen.
+         Steps 1 + 2 are required; step 3 is a strong recommendation. -->
+    <string name="wizard_title">Quick setup — tap Allow for each step</string>
 
-    <string name="card_files_title">2. File access</string>
-    <string name="card_files_text">Lets the app read WhatsApp\'s hidden status folder so it can save what you viewed. Nothing else is touched.</string>
-    <string name="btn_allow_files">Allow file access</string>
+    <string name="step1_title">Step 1 of 3 · Accessibility (the button engine)</string>
+    <string name="step1_text">This lets StatusSaver put its green button inside WhatsApp. Tap Allow, then in the list tap \"StatusSaver smart button\", switch it ON, and come back here. It only notices which app is open — it cannot read your messages or anything on screen.</string>
+    <string name="step2_title">Step 2 of 3 · File access</string>
+    <string name="step2_text">WhatsApp keeps the statuses you view in a hidden folder. Tap Allow and switch \"Allow access to manage all files\" ON, so StatusSaver can save the status you\'re watching. It reads only WhatsApp\'s status folders — nothing else.</string>
+    <string name="step3_title">Step 3 of 3 · Battery (recommended)</string>
+    <string name="step3_text">Some phones quietly switch background apps off — that is what made the button disappear before. Tap Allow and choose \"Allow\" so the button stays alive.</string>
+    <string name="btn_allow">Allow</string>
 
-    <string name="card_notif_title">3. Notifications</string>
-    <string name="card_notif_text">Android 13+ needs this so the floating button can stay alive in the background.</string>
-    <string name="btn_allow_notif">Allow notifications</string>
-
-    <string name="card_accessibility_title">4. Accessibility — smart button</string>
-    <string name="card_accessibility_text">Lets the button appear ONLY while a WhatsApp status is playing, and stay hidden everywhere else. StatusSaver watches which screen is open — it cannot read your messages or anything on screen. In Settings, open Accessibility → Installed apps → StatusSaver and turn it on.</string>
-    <string name="card_accessibility_battery">Also: allow StatusSaver to run in the background (Battery settings — Unrestricted / never sleeping / autostart, wording differs per phone), or your phone may disconnect the watcher.</string>
-    <string name="btn_allow_accessibility">Open Accessibility settings</string>
+    <string name="done_accessibility">✓ Accessibility is on</string>
+    <string name="done_files">✓ File access is on</string>
+    <string name="done_battery">✓ Battery is OK</string>
+    <string name="all_set">You\'re all set ✓ — open WhatsApp and look for the green button.</string>
+    <string name="setup_first">Finish the setup steps first ☝</string>
 
     <string name="accessibility_label">StatusSaver smart button</string>
-    <string name="accessibility_desc">Shows the StatusSaver download button only while you are viewing a WhatsApp status, and hides it on every other screen. It detects which app window is open only — it does not read screen content.</string>
+    <string name="accessibility_desc">Shows the StatusSaver download button while WhatsApp is open, so you can save the status you are viewing in one tap. It detects which app window is open only — it does not read screen content.</string>
     <string name="floating_button_desc">Save this status</string>
 
     <string name="show_button">Show floating button</string>
     <string name="hide_button">Hide floating button</string>
-    <string name="grant_first">Grant the permissions above first</string>
+    <string name="accessibility_first">Turn on Accessibility first (Step 1 above) — the watcher IS the button engine</string>
+    <string name="watcher_warming">One moment — the button engine isn\'t connected yet. If this message stays, redo Step 1 above.</string>
+    <string name="open_status_first">Open a status first, then tap the green button.</string>
 
-    <string name="diag_title">Diagnostics (v1.2)</string>
+    <string name="autosave_label">Auto-save every status I view</string>
+    <string name="autosave_hint">When ON, any status you open in WhatsApp saves itself — no tapping needed.</string>
+    <string name="autosave_on">Auto-save ON — statuses you view will save themselves</string>
+    <string name="autosave_off">Auto-save OFF</string>
+
+    <string name="diag_title">Diagnostics (v1.3)</string>
     <string name="btn_copy_diagnostics">Copy diagnostics</string>
     <string name="diagnostics_copied">Diagnostics copied — paste it anywhere to share</string>
 
+    <string name="tab_recent">Recent statuses</string>
+    <string name="tab_saved">My Saved</string>
     <string name="statuses_header">Your recent statuses</string>
+    <string name="saved_header">Your saved statuses</string>
     <string name="empty_statuses">No statuses found yet.\nView a status in WhatsApp, then come back.</string>
-    <string name="grant_files_first">Grant file access above to see your statuses.</string>
+    <string name="saved_empty">Nothing saved yet — open a WhatsApp status and tap the green button.</string>
+    <string name="grant_files_first">Finish Step 2 (file access) above to see your statuses.</string>
     <string name="btn_save">Save</string>
     <string name="badge_video">▶ VIDEO</string>
+
+    <string name="action_view">View</string>
+    <string name="action_share">Share</string>
+    <string name="action_delete">Delete</string>
+    <string name="action_failed">That didn\'t work — try again</string>
+    <string name="deleted_ok">Deleted</string>
+    <string name="delete_failed">Couldn\'t delete that one</string>
 
     <string name="saved_gallery">Saved to gallery ✓</string>
     <string name="save_failed">Save failed — check permissions</string>
     <string name="no_statuses">No statuses found — view one in WhatsApp first</string>
     <string name="saved_which_file">Saved \"%1$s\" (from %2$d min ago) ✓</string>
-
-    <string name="notif_title">StatusSaver is running</string>
-    <string name="notif_text">The SAVE button appears while you view a WhatsApp status. Tap to stop.</string>
 </resources>
