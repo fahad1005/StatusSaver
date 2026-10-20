@@ -26,8 +26,10 @@ advertising identifiers as described in
   revoked anytime in Android Settings.
 - **Storage** (Android 10 and below) — same purpose, via standard storage
   permissions.
-- **Gallery (`Pictures/StatusSaver` and `Movies/StatusSaver`)** — where
-  your saved statuses are stored: photos in Pictures, videos in Movies.
+- **Gallery (`Pictures/StatusSaver`)** — where your saved statuses are
+  stored: one album ("StatusSaver") holding both photos and videos.
+  (Versions up to 1.3 also used `Movies/StatusSaver` for videos; the app
+  can still show those older saves in its library.)
 
 ## What we do NOT do
 

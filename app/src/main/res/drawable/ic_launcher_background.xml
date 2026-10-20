@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Launcher icon background (v1.4.1): a solid WhatsApp-green field
+     (#25D366 — the same green as the floating button, @color/whatsapp_green).
+     Before v1.4.1 this layer did not exist at all: the manifest pointed
+     the launcher straight at the white-arrow foreground vector over
+     transparency, which light launchers rendered as a blank white tile. -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    <path
+        android:fillColor="#25D366"
+        android:pathData="M0,0h108v108h-108z" />
+</vector>

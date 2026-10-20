@@ -1,5 +1,11 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- Simple launcher icon: a download arrow. Vector = no image files needed. -->
+<!-- Launcher icon FOREGROUND (since v1.4.1): a bold white download
+     arrow, drawn inside the adaptive icon's safe zone (the mark spans
+     x36–72 / y28–78 of the 108-unit canvas). It is only ever rendered
+     OVER @drawable/ic_launcher_background (solid WhatsApp green) —
+     before v1.4.1 the manifest used this file ALONE as the icon, and
+     a white arrow on transparency is a blank white tile on light
+     launchers. Vector = no image files needed. -->
 <vector xmlns:android="http://schemas.android.com/apk/res/android"
     android:width="108dp"
     android:height="108dp"

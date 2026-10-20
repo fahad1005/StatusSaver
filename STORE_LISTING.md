@@ -13,7 +13,7 @@ it's in your gallery. No switching apps, no hunting through folders.
 
 - One-tap save with the floating button — never leave WhatsApp
 - Optional auto-save: statuses you view save themselves
-- Saves photos and videos to your gallery (photos: Pictures/StatusSaver, videos: Movies/StatusSaver), with a built-in library to view, share, and delete them
+- Saves photos and videos to your gallery — one album, "StatusSaver" (Pictures/StatusSaver) — with a built-in library to view, share, and delete them
 - Clean design, no shady popups
 - Works fully on your device — your data never leaves your phone
 

@@ -1,6 +1,340 @@
-# StatusSaver — build notes (v1, 2026-10-19; v1.1–v1.3 updates 2026-10-20)
+# StatusSaver — build notes (v1, 2026-10-19; v1.1–v1.4.1 updates 2026-10-20)
 
 Engineering log for the v1 build.
+
+## v1.4.1 (2026-10-20) — consolidation: save the status you're LOOKING at
+
+v1.4.1 is built ON TOP of the (never-uploaded) v1.4 state and
+SUPERSEDES the v1.4 zip — only the v1.4.1 zip ships. Everything in
+the v1.4 section below still applies unchanged; this section adds
+two fixes from a second batch of screen recordings.
+
+### Field evidence (recordings, v1.3 on Fahad's vivo)
+- **WRONG-FILE SAVE, filmed.** Fahad taps the button while viewing
+  a gem status (Gulbacha's) and the app saves — again — the PREVIOUS
+  status's video (the Riaz Town truck .mp4 he'd already saved). The
+  toast names the same wrong file twice. Root cause: the tap saved
+  "the newest file in .Statuses" **by mtime**, and WhatsApp does NOT
+  reliably make the currently-viewed status the newest. It
+  pre-caches while the status LIST is scrolled and finishes
+  downloads on its own schedule, so a previously-viewed file can
+  carry the freshest mtime while the current status's file was
+  written earlier (or is still arriving).
+- **BLANK LAUNCHER ICON.** The app drawer shows StatusSaver as a
+  blank white tile. Root cause is in the resources (below).
+
+### FIX — session targeting for watcher saves
+**Mechanism** (`StatusWatcherService`, `StatusScanner`, `Prefs`):
+when the watcher ENTERS the status viewer — the live false→true
+matcher transition, the same one that arms auto-save — it snapshots
+the whole .Statuses cache (`StatusScanner.snapshot()`:
+filename → (size, mtime)) and persists it in Prefs
+(`Prefs.saveSessionSnapshot`, serialized "name|size|mtime" lines;
+WhatsApp cache names are content hashes, so the separators can't
+collide). The scan runs on a background thread; the snapshot has
+the whole viewing to land before any save diffs against it.
+
+On a watcher-initiated save (button tap OR auto-save —
+`resolveSessionTarget()`), candidates = the files that are **NEW
+since the snapshot or whose (size or mtime) CHANGED** since it
+(`StatusScanner.changedSince`):
+- **exactly one candidate** → save it;
+- **several** → the one with the **latest mtime among the
+  candidates** (the current status is what WhatsApp fetched most
+  recently; anything else touched in the same window was
+  pre-fetch, written earlier);
+- **none** → **fall back to newest overall** (the pre-v1.4.1
+  heuristic). This is the re-viewing case: the status was already
+  fully cached, WhatsApp wrote nothing, and there is no diff
+  evidence to do better with — the age-disclosure toast then names
+  the saved file, as it has since v1.1.
+
+The in-app grid is untouched: its Save buttons name their file
+explicitly and never needed targeting. The Bug-2 size-stability
+wait, read-back verification, LastSave recording and the v1.4
+auto-save session-arming are all unchanged — the snapshot is taken
+on the same live transition that arms, and restored state still
+never arms or fires anything by itself.
+
+**Honest limits.** If WhatsApp pre-cached several statuses during
+list scrolling BEFORE the viewer was entered, those files are in
+the snapshot, unchanged — indistinguishable from old cache — and
+if the viewed status is one of them and nothing else changes, the
+fallback (newest overall) decides, with the same wrong-file risk
+as before. Session targeting removes the filmed failure mode
+(previous status re-written/re-touched after entry); it cannot
+create evidence WhatsApp never wrote. The tiebreak among changed
+files is latest-mtime, which is a heuristic too — just one scoped
+to "what changed during THIS viewing" instead of the whole cache.
+
+### FIX — launcher icon (resources only)
+**Root cause, verified on disk.** The manifest declared
+`android:icon`/`android:roundIcon` = `@drawable/ic_launcher_foreground`
+— a 108dp vector containing ONLY a white-stroked download arrow
+(`strokeColor="#FFFFFF"`) over **transparency**. There was no
+adaptive icon anywhere (no `mipmap-anydpi*` directory existed), and
+no background layer at all (colors.xml still carries the template's
+orphaned `ic_launcher_background` teal, referenced by nothing). On
+a light launcher, white-on-transparent renders as a blank white
+tile — exactly Fahad's drawer.
+
+**Fix:** the brand mark, both eras of Android icon:
+- `drawable/ic_launcher_background.xml` (NEW): solid WhatsApp
+  green field, #25D366 — the app's own green (`whatsapp_green`,
+  the floating button's color).
+- `mipmap-anydpi-v26/ic_launcher.xml` +
+  `ic_launcher_round.xml` (NEW): adaptive icons = that background
+  + the existing arrow foreground (the arrow already sits inside
+  the safe zone, x36–72 / y28–78 of the 108 canvas).
+- `mipmap-anydpi/ic_launcher.xml` + `ic_launcher_round.xml` (NEW):
+  pre-Android-8 layer-list fallback with the same two layers.
+- Manifest now points at `@mipmap/ic_launcher` /
+  `@mipmap/ic_launcher_round`. No code touched.
+
+### Files changed in v1.4.1 (on top of the v1.4 set)
+- `StatusWatcherService.kt` — snapshot on status entry
+  (`takeSessionSnapshot`); `resolveSessionTarget()`; tap and
+  auto-save both save the session target.
+- `StatusScanner.kt` — `snapshot()` + `changedSince()` added;
+  `newest()` demoted to documented fallback.
+- `Prefs.kt` — session snapshot persistence.
+- `MainActivity.kt`, `strings.xml` — Diagnostics labels say v1.4.1.
+- `AndroidManifest.xml` — icon attributes → `@mipmap/ic_launcher`.
+- `drawable/ic_launcher_background.xml`, `mipmap-anydpi*/ic_launcher*.xml`
+  — NEW icon resources; `ic_launcher_foreground.xml` comment only.
+- `app/build.gradle` — versionCode 6 / versionName "1.4.1".
+- `BUILD_NOTES.md`, `UPDATE_INSTRUCTIONS.md`, `README.md` — this
+  section, the superseding instructions, the version header.
+
+### Residual risks (v1.4.1)
+- The fallback case above (fully-pre-cached status, silent cache)
+  keeps the old heuristic's risk; watch the A/B test in
+  UPDATE_INSTRUCTIONS step 5 — it exercises entry-diffing, the
+  filmed failure mode.
+- Snapshot persistence is a single baseline: two viewers in two
+  WhatsApp windows (split-screen) would share it. WhatsApp's status
+  viewer is full-screen in practice; accepted.
+- Adaptive-icon rendering is the launcher's job; the vivo drawer is
+  the field test. The mark is high-contrast by construction (white
+  on #25D366), so a mask surprise can change the SHAPE, not the
+  legibility.
+
+## v1.4 (2026-10-20) — field-test fixes: one-time means one-time
+
+### Field evidence (v1.3 on Fahad's vivo, evening test #2)
+The v1.3 architecture works — his Diagnostics screenshot shows
+`Button engine: WATCHER · ALIVE` and a verified 2.98 MB video save.
+His verdict was still "not working properly", in his own words:
+
+1. *"Every time I allow then button appear… every time I have to
+   start and allow it. It's annoying."*
+2. *"I click download but some image and videos downloads and some
+   don't download."*
+3. *"Some are download itself."*
+4. (From his 154-second screen recording, frame-sampled) The button
+   **flickers**: present on one status, absent on the next several
+   (video, text, video), present again — inside WhatsApp, watcher
+   connected, the whole time.
+5. (Same recording) Taps land while statuses are still **buffering**
+   (spinner visible) — the file being copied is still being written.
+6. (Same recording) It ends in his Gallery: the only StatusSaver
+   album he can find holds **3 images**. The videos are in
+   `Movies/StatusSaver`, an album vivo's Gallery buries. To the user:
+   "videos don't save."
+7. (Same recording) **Accessibility was found switched OFF when the
+   recording started** — the phone (or a cleaner) had flipped it, and
+   he had to re-enable it before anything could work.
+
+He also benchmarked the category leader ("Status Saver", 10M+
+downloads): ONE storage-allow popup, no button, no accessibility —
+its core never depends on a live service. Our edge remains the
+button; v1.4 is about making the button deserve to exist.
+
+### A plain statement about #7 (Accessibility switched off)
+**There is no code-level way to re-enable an accessibility service.**
+Android reserves that switch to the user, deliberately — any app that
+could flip it programmatically would be malware-shaped. Anyone who
+promises otherwise is lying. So the fix for #7 is UX, not code:
+- the failure must be **obvious and cheap to repair**: the v1.4
+  "Button is asleep — Wake it" banner (below) is one tap from the
+  exact settings screen, with instructions that cover the
+  shows-ON-but-asleep case (OFF→ON is the wake);
+- the occasions should be **rarer**: wizard step 3 (battery
+  exemption), the new optional step 4 (autostart deep-link), and the
+  per-brand battery table in the README all exist to keep OEM
+  managers from disconnecting the watcher in the first place.
+That is the whole fix, stated plainly so nobody re-files it as a bug
+that "just needs a code change".
+
+### BUG 1 — "Every time I have to start and allow it"
+Root cause: v1.3 kept no memory of setup ever having been completed.
+`refreshWizard()` derived everything live: watcher momentarily not
+connected (vivo asleep) ⇒ step 1 "not done" ⇒ the whole wizard
+un-collapsed — the user experienced a sleeping watcher as a full
+re-setup demand. Fixes:
+- **(a) Setup-completion latch (Prefs.setupComplete).** Set the first
+  time the wizard observes steps 1+2 done. From then on,
+  `refreshWizard()` runs in returning-user mode: the wizard NEVER
+  re-expands. Watcher not connected ⇒ one slim banner ("Button is
+  asleep" + **Wake it** → `ACTION_ACCESSIBILITY_SETTINGS`). Files
+  permission genuinely revoked ⇒ only the step-2 repair card. All
+  healthy ⇒ the single "You're all set ✓" row. Steps 1/3 cannot
+  reappear.
+- **(b) Toggle truthfulness — verified, no change needed.**
+  `Prefs.setButtonEnabled` has exactly two call sites, both inside
+  the toggle's own click handler. Nothing in onCreate, onResume, or
+  any upgrade path writes it; `updateToggleLabel()` re-reads Prefs on
+  every `onResume` (plus the 1.2 s delayed refresh). The v1.2 disease
+  (label and engine disagreeing) stays cured.
+- **(c) BootReceiver + RECEIVE_BOOT_COMPLETED (new).** On
+  BOOT_COMPLETED it runs in-process, reads back the persisted state
+  (logs it), and nudges `StatusWatcherService.reevaluate()` if the
+  watcher is already bound. No notification, no UI, no service start.
+  Honest framing: the REAL post-reboot mechanism is the system
+  re-binding the enabled accessibility service; the receiver exists
+  so the process and its state are warm and consistent, per spec.
+- **(d) Optional wizard Step 4 — Autostart (never a gate).**
+  `PermissionHelper.requestAutostartSettings` tries, in order, the
+  MIUI permcenter autostart activity, vivo's permission-manager
+  background-start activity, and the ColorOS/Oplus safeguard startup
+  lists, then falls back to app-details. Settings deep-links only —
+  opening one changes nothing by itself, and NO app logic branches on
+  brand. Done-check: none (there is no API to read another app's
+  switch); the user's **Done / Skip** persists
+  `Prefs.wizardStep4Dismissed` and the step never shows again.
+- **(e) Layer-1 stays instant — verified.** `onResume` calls
+  `loadCurrentTab()` unconditionally; the wizard/banner are passive
+  views in the same scroll column and never gate browsing or grid
+  saves. (Without file access the grid still can't list statuses —
+  that's the permission's nature, not a wizard block.)
+
+### BUG 2 — "Some download, some don't" (button tap)
+Two compounding causes, both removed:
+- **(a) The smart-tap MATCH gate is GONE for manual taps.** v1.3
+  refused to save unless the class matcher currently said MATCH;
+  matcher misses (a renamed viewer class, a last event that was a
+  transient window) turned real statuses into "Open a status first"
+  refusals. Now: foreground package is WhatsApp (incl. the BUG-4
+  grace window) ⇒ `saveNewestStatus()` runs, always. The matcher
+  survives ONLY as the auto-save trigger, where a miss costs nothing.
+  The age-naming toast still discloses when the newest file is old.
+- **(b) File-readiness wait (SaveHelper.awaitStableFile).** Before
+  copying, poll the target's length every 300 ms; proceed when
+  unchanged across 2 consecutive polls; budget ~5 s for videos /
+  ~3 s for images (his recording shows taps on still-buffering
+  statuses — WhatsApp was still writing those files, so copies were
+  truncated and failed verification, or worse, "saved" short).
+  After the budget, copy what exists; the existing byte-count +
+  MediaStore read-back verification still decides success, and a
+  0-byte target now fails honestly with the reason recorded
+  ("Status file is empty — WhatsApp may still be downloading it")
+  instead of being "saved" as an empty shell. It's inside
+  `saveToGallery`, so grid saves and auto-saves get it too. All save
+  call sites already run on background threads, so the wait never
+  blocks a UI.
+- **(c) Target selection — deliberately unchanged.** Window events
+  carry no media-type information, so "newest matching current
+  screen type" is not knowable; newest overall + the stability wait
+  is the fix. (BUG 5 below removes the other half of the "videos
+  don't save" impression.)
+
+### BUG 3 — "Some download by themselves"
+Even with auto-save ON by choice, it could fire without a live
+"entry": the process dies mid-status, the system rebinds the
+watcher, `onServiceConnected` restores `statusOnScreen=true` from
+the persisted record — and the first live event (or a NO MATCH→MATCH
+flip against the restored baseline) could read as a fresh transition
+and arm the debounce. v1.4 adds an explicit session guard:
+`autoSaveArmedThisSession` starts FALSE at every (re)bind and turns
+TRUE only when a LIVE event in this session shows a WhatsApp screen
+that is NOT the status viewer. `armAutoSave()` refuses while
+unarmed. Restored state still restores the BUTTON (visibility is not
+a save), but it can never arm or fire a save: the user must be seen,
+live, somewhere else in WhatsApp first. Labels: automatic saves now
+toast **"Auto-saved ✓"** (manual stays "Saved to gallery ✓"), and
+Diagnostics gains an **Auto-save: ON/OFF** row so "it downloads by
+itself" is checkable in one screenshot. Default remains OFF.
+
+### BUG 4 — Button flicker across status swipes
+`updateButton()` applied the visibility rule instantly on every
+event, and during WhatsApp-internal transitions (status swipes,
+dialogs) the foreground package flickers through foreign values
+(system windows, the launcher) for split seconds — each flip was a
+real detach, the next a real re-attach: the button blinked.
+Fix — hysteresis in `updateButton()`:
+- SHOW: immediate, and idempotent/self-verifying as before
+  (`attachButton` re-adds only if the view is actually missing;
+  never detach+reattach on an unchanged state).
+- HIDE: a non-WhatsApp foreground must persist ~600 ms
+  (`HIDE_GRACE_MS`, a posted runnable that re-derives at fire time)
+  before the detach applies. A WhatsApp event cancels the pending
+  hide. The user's toggle-OFF still hides instantly.
+- Applied changes only are logged (`Button decision: SHOW/HIDE`), so
+  the log and Diagnostics' "Button visible now" tell one story.
+Known trade-off, accepted: after genuinely leaving WhatsApp, the
+button can linger up to ~0.6 s over the next app while the grace
+runs out.
+
+### BUG 5 — "Videos don't save" = the album split (v1.1 decision reversed)
+v1.1 moved videos to `Movies/StatusSaver` because gallery VIDEO
+VIEWS didn't surface videos parked under Pictures/. Field evidence
+now says the split is the bigger evil: users look for the ALBUM, and
+vivo's Gallery buries the Movies one — one album with 3 images reads
+as "videos don't save". The category leader uses one album.
+v1.4 unifies: the MediaStore COLLECTION stays type-correct (Video
+collection + video MIME for videos), but `RELATIVE_PATH` is
+`Pictures/StatusSaver` for everything — one album, "StatusSaver",
+mixed content. My Saved reads `Pictures/StatusSaver/` for both
+collections AND `Movies/StatusSaver/` for videos, so v1.0–v1.3 saves
+keep showing. The pre-Q legacy path already wrote everything to
+`Pictures/StatusSaver`; unchanged. (The v1.1 concern is noted for
+the record: if a specific gallery's "Videos" view hides the unified
+album's videos, the Files app still shows them, and My Saved lists
+them regardless — the album-first behaviour is what users asked
+for, matching the market leader.)
+
+### Files changed in v1.4
+Changed: `app/build.gradle` (versionCode 5 / versionName "1.4"),
+`app/src/main/AndroidManifest.xml` (RECEIVE_BOOT_COMPLETED +
+BootReceiver), `.../StatusWatcherService.kt` (ungated tap, session
+arm guard, "Auto-saved ✓", hide-grace hysteresis + decision logs),
+`.../MainActivity.kt` (setup latch + returning-user mode + asleep
+banner, step-4 wiring, Diagnostics Auto-save row, My Saved dual-path
+read), `.../Prefs.kt` (setupComplete + step4Dismissed),
+`.../SaveHelper.kt` (stability wait, empty-target honesty, one
+album), `.../PermissionHelper.kt` (autostart deep-links),
+`app/src/main/res/layout/activity_main.xml` (banner, step 4,
+Diagnostics row), `app/src/main/res/values/strings.xml` (step
+renumbering, banner/step-4/auto-save copy, Diagnostics v1.4 header),
+`README.md`, `BUILD_NOTES.md`, `UPDATE_INSTRUCTIONS.md`,
+`PRIVACY_POLICY.md`, `STORE_LISTING.md` (one-album wording).
+Added: `.../BootReceiver.kt`.
+Not changed: `StatusScanner.kt`, `accessibility_service_config.xml`,
+drawables, colors — and NO brand-specific behaviour anywhere (the
+autostart step is a settings deep-link chain, like the per-brand
+battery table in the README: guidance, not logic).
+
+### Residual risks (v1.4)
+- **The 600 ms grace cuts both ways.** A genuinely-departed
+  WhatsApp leaves the button up to ~0.6 s over the next screen; a
+  foreign window lasting LONGER than 600 ms over a status (a system
+  permission dialog) will still hide the button until the next
+  WhatsApp event re-shows it (which happens on dialog dismissal).
+- **Stability wait vs. very slow connections.** A huge video on a
+  slow network can still be growing after ~5 s; we copy what exists
+  and verification may fail with an honest toast — tap again once
+  the status has fully loaded. Raising the budget delays every save;
+  5 s is the chosen balance.
+- **Auto-save's first status after a rebind never auto-saves**
+  (session guard) — by design (BUG 3), but a user testing exactly
+  that scenario may read it as "auto-save is broken". The test in
+  UPDATE_INSTRUCTIONS walks chat-list → status for this reason.
+- **Autostart activity names drift.** OEMs rename settings
+  activities between OS versions; a missed name just falls back to
+  the app-details page (two taps more), never a crash or a dead end.
+- Force-stop remains final (unchanged from v1.3): it unbinds
+  accessibility until the user re-enables it — see "A plain
+  statement about #7" above.
 
 ## v1.3 (2026-10-20) — architecture fix: the watcher owns the button
 

@@ -43,14 +43,19 @@ import java.util.Date
 import java.util.Locale
 
 // MainActivity: the app's home screen.
-// 1) A one-time Allow WIZARD (final spec): three steps, one big Allow
-//    button each, every button deep-links to the exact system screen —
-//    1) Accessibility (the button engine), 2) File access, 3) Battery
-//    (recommended, not a gate). Steps re-check themselves every time
-//    the screen returns; finished steps collapse to a slim ✓ row, and
-//    once steps 1+2 are done the whole wizard becomes one row:
-//    "You're all set ✓". If a required permission is later switched
-//    off, only the missing step comes back, as a repair card.
+// 1) A one-time Allow WIZARD (final spec; v1.4 two-audience fix):
+//    steps with one big Allow button each, every button deep-links to
+//    the exact system screen — 1) Accessibility (the button engine),
+//    2) File access, 3) Battery (recommended, not a gate), 4) Autostart
+//    (optional, v1.4 — Done/Skip dismisses it forever). Steps re-check
+//    themselves every time the screen returns; finished steps collapse
+//    to a slim ✓ row, and once steps 1+2 are done the whole wizard
+//    becomes one row: "You're all set ✓". v1.4: setup completion is
+//    LATCHED in Prefs — after that, the wizard never re-presents as a
+//    fresh setup. A sleeping watcher gets one slim "Button is asleep —
+//    Wake it" banner; a genuinely revoked files permission gets its
+//    single repair step; that's all. And none of it ever blocks the
+//    screen: the statuses grid loads immediately, every time.
 // 2) A toggle that flips the persisted button on/off choice and nudges
 //    the watcher to apply it. Locked until wizard steps 1+2 are done —
 //    it scrolls to the wizard instead of pretending.
@@ -73,12 +78,14 @@ class MainActivity : AppCompatActivity() {
     private lateinit var wizardContainer: LinearLayout
     private lateinit var wizardTitle: TextView
     private lateinit var wizardAllSet: TextView
+    private lateinit var asleepBanner: LinearLayout
     private lateinit var stepAccessibility: LinearLayout
     private lateinit var stepAccessibilityDone: TextView
     private lateinit var stepFiles: LinearLayout
     private lateinit var stepFilesDone: TextView
     private lateinit var stepBattery: LinearLayout
     private lateinit var stepBatteryDone: TextView
+    private lateinit var stepAutostart: LinearLayout
 
     private lateinit var btnToggle: Button
     private lateinit var switchAutoSave: SwitchCompat
@@ -96,6 +103,7 @@ class MainActivity : AppCompatActivity() {
     private lateinit var diagVisible: TextView
     private lateinit var diagLastScreen: TextView
     private lateinit var diagLastSave: TextView
+    private lateinit var diagAutoSave: TextView
 
     private val statuses = mutableListOf<StatusScanner.StatusFile>()
     private lateinit var recentAdapter: StatusAdapter
@@ -152,12 +160,14 @@ class MainActivity : AppCompatActivity() {
         wizardContainer = findViewById(R.id.wizardContainer)
         wizardTitle = findViewById(R.id.wizardTitle)
         wizardAllSet = findViewById(R.id.wizardAllSet)
+        asleepBanner = findViewById(R.id.asleepBanner)
         stepAccessibility = findViewById(R.id.stepAccessibility)
         stepAccessibilityDone = findViewById(R.id.stepAccessibilityDone)
         stepFiles = findViewById(R.id.stepFiles)
         stepFilesDone = findViewById(R.id.stepFilesDone)
         stepBattery = findViewById(R.id.stepBattery)
         stepBatteryDone = findViewById(R.id.stepBatteryDone)
+        stepAutostart = findViewById(R.id.stepAutostart)
         btnToggle = findViewById(R.id.btnToggle)
         switchAutoSave = findViewById(R.id.switchAutoSave)
         tabRecent = findViewById(R.id.tabRecent)
@@ -173,6 +183,7 @@ class MainActivity : AppCompatActivity() {
         diagVisible = findViewById(R.id.diagVisible)
         diagLastScreen = findViewById(R.id.diagLastScreen)
         diagLastSave = findViewById(R.id.diagLastSave)
+        diagAutoSave = findViewById(R.id.diagAutoSave)
 
         // Test ads for now — replace with your real AdMob IDs before release (see README).
         MobileAds.initialize(this) {}
@@ -186,6 +197,20 @@ class MainActivity : AppCompatActivity() {
         }
         findViewById<Button>(R.id.btnStepBattery).setOnClickListener {
             PermissionHelper.requestBatteryExemption(this)
+        }
+        findViewById<Button>(R.id.btnStepAutostart).setOnClickListener {
+            PermissionHelper.requestAutostartSettings(this)
+        }
+        findViewById<Button>(R.id.btnStepAutostartSkip).setOnClickListener {
+            // Step 4 is advisory: "Done / Skip" is a complete answer.
+            Prefs.setWizardStep4Dismissed(this, true)
+            refreshWizard()
+            Toast.makeText(
+                this, getString(R.string.step4_dismissed), Toast.LENGTH_SHORT
+            ).show()
+        }
+        findViewById<Button>(R.id.btnWake).setOnClickListener {
+            PermissionHelper.requestAccessibilitySettings(this)
         }
         btnToggle.setOnClickListener { toggleFloatingButton() }
         findViewById<Button>(R.id.btnCopyDiagnostics).setOnClickListener {
@@ -228,7 +253,7 @@ class MainActivity : AppCompatActivity() {
         super.onPause()
     }
 
-    // ---- The Allow wizard ----
+    // ---- The Allow wizard (v1.4: two audiences, never confused) ----
     // Done-checks:
     //   Step 1: the Settings list says our service is enabled AND the
     //     watcher is truly CONNECTED (the two can disagree — see the
@@ -238,34 +263,82 @@ class MainActivity : AppCompatActivity() {
     //     legacy storage permission below).
     //   Step 3: the battery-optimisation exemption. Recommended only —
     //     it never blocks the toggle or the "all set" state.
+    //   Step 4 (v1.4): autostart. Advisory only, no done-check — the
+    //     user answers it with Done/Skip, persisted in Prefs.
+    //
+    // FIRST-RUN users get the wizard above. The moment steps 1+2 are
+    // both observed done, Prefs.setupComplete latches TRUE — and a
+    // RETURNING user never sees the wizard as a fresh setup again
+    // (v1.4, BUG 1: "every time I have to start and allow it"). What
+    // they get instead:
+    //   - watcher asleep (not connected — an OEM battery manager
+    //     disconnected it while the Settings switch may still say On):
+    //     ONE slim banner, "Button is asleep" + a "Wake it" button
+    //     that deep-links to the Accessibility settings screen;
+    //   - files permission genuinely revoked: that ONE repair step;
+    //   - everything healthy: the single "You're all set ✓" row.
+    // The statuses grid below never waits on any of this — it loads
+    // in onResume regardless (Layer-1 is instant, wizard or not).
     private fun step1Done(): Boolean =
         PermissionHelper.isAccessibilityEnabled(this) &&
             StatusWatcherService.watcherConnected
 
     private fun refreshWizard() {
-        val requiredDone = step1Done() && PermissionHelper.hasFileAccess(this)
-        wizardTitle.visibility = if (requiredDone) View.GONE else View.VISIBLE
-        wizardAllSet.visibility = if (requiredDone) View.VISIBLE else View.GONE
-        applyStep(
-            stepAccessibility, stepAccessibilityDone,
-            step1Done(), requiredDone
-        )
-        applyStep(
-            stepFiles, stepFilesDone,
-            PermissionHelper.hasFileAccess(this), requiredDone
-        )
-        applyStep(
-            stepBattery, stepBatteryDone,
-            PermissionHelper.hasBatteryExemption(this), requiredDone
-        )
+        val filesOk = PermissionHelper.hasFileAccess(this)
+        val requiredDone = step1Done() && filesOk
+        if (requiredDone && !Prefs.isSetupComplete(this)) {
+            Prefs.setSetupComplete(this, true)
+        }
+        if (!Prefs.isSetupComplete(this)) {
+            // First-run mode: the full wizard (v1.3 behaviour).
+            asleepBanner.visibility = View.GONE
+            wizardTitle.visibility = if (requiredDone) View.GONE else View.VISIBLE
+            wizardAllSet.visibility = if (requiredDone) View.VISIBLE else View.GONE
+            applyStep(
+                stepAccessibility, stepAccessibilityDone,
+                step1Done(), requiredDone
+            )
+            applyStep(
+                stepFiles, stepFilesDone,
+                filesOk, requiredDone
+            )
+            applyStep(
+                stepBattery, stepBatteryDone,
+                PermissionHelper.hasBatteryExemption(this), requiredDone
+            )
+        } else {
+            // Returning-user mode: banner or all-set, plus at most the
+            // single files repair step. Steps 1/3 never re-expand.
+            wizardTitle.visibility = View.GONE
+            stepAccessibility.visibility = View.GONE
+            stepAccessibilityDone.visibility = View.GONE
+            stepBattery.visibility = View.GONE
+            stepBatteryDone.visibility = View.GONE
+            val asleep = !StatusWatcherService.watcherConnected
+            asleepBanner.visibility = if (asleep) View.VISIBLE else View.GONE
+            wizardAllSet.visibility =
+                if (!asleep && filesOk) View.VISIBLE else View.GONE
+            if (!filesOk) {
+                stepFiles.visibility = View.VISIBLE
+                stepFilesDone.visibility = View.GONE
+            } else {
+                stepFiles.visibility = View.GONE
+                stepFilesDone.visibility = View.GONE
+            }
+        }
+        // Step 4 (optional autostart): lives in the wizard area until
+        // the user answers it with Done/Skip — in both modes, since a
+        // user who finished setup quickly may never have read it.
+        stepAutostart.visibility =
+            if (Prefs.isWizardStep4Dismissed(this)) View.GONE else View.VISIBLE
     }
 
     // One step's two faces: the full card (title + text + Allow button)
     // while it's missing, a slim "✓ …" row once granted. When the whole
     // wizard is complete, both faces hide — the "You're all set" row is
-    // the wizard. If a required permission is later revoked, the wizard
-    // un-collapses and only the missing step's card shows (plus the
-    // other steps' slim ✓ rows).
+    // the wizard. (First-run mode only: since v1.4, once setup has
+    // completed once, refreshWizard's returning-user mode handles
+    // revocations and sleeping watchers instead — see above.)
     private fun applyStep(block: View, doneRow: View, done: Boolean, collapsed: Boolean) {
         when {
             collapsed -> {
@@ -370,6 +443,7 @@ class MainActivity : AppCompatActivity() {
     //   → the last save attempt (from Prefs, recorded by SaveHelper):
     //     when, which file, how big, SAVED or FAILED + why; automatic
     //     saves are marked (auto).
+    //   → Auto-save: ON/OFF (v1.4) — the switch's persisted state.
     // Field values are computed once here and reused by the Copy button,
     // so the screenshot and the copied text can never disagree.
     private fun diagnosticsRows(): List<Pair<String, String>> {
@@ -403,6 +477,11 @@ class MainActivity : AppCompatActivity() {
             }
             "$time · ${save.fileName} · ${humanSize(save.sizeBytes)} · $result"
         }
+        // v1.4: the auto-save switch state, on the card itself — when
+        // a user reports "statuses download by themselves", this row
+        // (plus the "(auto)" marker on the save row) settles whether
+        // the feature is even on.
+        val autoSave = if (Prefs.isAutoSave(this)) "ON" else "OFF"
         return listOf(
             "Overlay permission" to overlay,
             "Accessibility switch" to accessibility,
@@ -410,7 +489,8 @@ class MainActivity : AppCompatActivity() {
             "Button engine" to engine,
             "Button visible now" to visibleNow,
             "Last seen screen" to lastScreen,
-            "Last save attempt" to lastSave
+            "Last save attempt" to lastSave,
+            "Auto-save" to autoSave
         )
     }
 
@@ -431,10 +511,11 @@ class MainActivity : AppCompatActivity() {
         diagVisible.text = "${rows[4].first}: ${rows[4].second}"
         diagLastScreen.text = "${rows[5].first}: ${rows[5].second}"
         diagLastSave.text = "${rows[6].first}: ${rows[6].second}"
+        diagAutoSave.text = "${rows[7].first}: ${rows[7].second}"
     }
 
     private fun copyDiagnostics() {
-        val text = StringBuilder("StatusSaver v1.3 diagnostics\n")
+        val text = StringBuilder("StatusSaver v1.4.1 diagnostics\n")
         for ((label, value) in diagnosticsRows()) {
             text.append("$label: $value\n")
         }
@@ -554,20 +635,28 @@ class MainActivity : AppCompatActivity() {
         }.start()
     }
 
-    // Everything StatusSaver has put in the gallery: images from
-    // Pictures/StatusSaver, videos from Movies/StatusSaver, newest
-    // first. Parameterized selection only (no string-built SQL).
-    // RELATIVE_PATH exists on Android 10+; below that, SaveHelper's
-    // legacy path wrote plain files, so match on the DATA path instead.
+    // Everything StatusSaver has put in the gallery, newest first.
+    // Since v1.4 there is ONE album — Pictures/StatusSaver — holding
+    // images AND videos; v1.0–v1.3 put videos in Movies/StatusSaver,
+    // so the video query covers BOTH relative paths or old saves would
+    // vanish from this tab. Parameterized selection only (no
+    // string-built SQL values). RELATIVE_PATH exists on Android 10+;
+    // below that, SaveHelper's legacy path wrote plain files into
+    // Pictures/StatusSaver, so match on the DATA path instead (the
+    // LIKE pattern matches either folder, one query per collection).
     private fun querySaved(): List<SavedItem> {
         val out = mutableListOf<SavedItem>()
         collectSaved(
             MediaStore.Images.Media.EXTERNAL_CONTENT_URI,
-            isVideo = false, relPath = "Pictures/StatusSaver/", out = out
+            isVideo = false,
+            relPaths = listOf("Pictures/StatusSaver/"),
+            out = out
         )
         collectSaved(
             MediaStore.Video.Media.EXTERNAL_CONTENT_URI,
-            isVideo = true, relPath = "Movies/StatusSaver/", out = out
+            isVideo = true,
+            relPaths = listOf("Pictures/StatusSaver/", "Movies/StatusSaver/"),
+            out = out
         )
         return out.sortedByDescending { it.dateAddedSec }
     }
@@ -575,7 +664,7 @@ class MainActivity : AppCompatActivity() {
     private fun collectSaved(
         collection: Uri,
         isVideo: Boolean,
-        relPath: String,
+        relPaths: List<String>,
         out: MutableList<SavedItem>
     ) {
         val projection = arrayOf(
@@ -586,9 +675,12 @@ class MainActivity : AppCompatActivity() {
         val selection: String
         val args: Array<String>
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-            selection = "${MediaStore.MediaColumns.RELATIVE_PATH} = ? AND " +
+            val pathClauses = relPaths.joinToString(" OR ") {
+                "${MediaStore.MediaColumns.RELATIVE_PATH} = ?"
+            }
+            selection = "($pathClauses) AND " +
                 "${MediaStore.MediaColumns.IS_PENDING} = 0"
-            args = arrayOf(relPath)
+            args = relPaths.toTypedArray()
         } else {
             selection = "${MediaStore.MediaColumns.DATA} LIKE ?"
             args = arrayOf("%/StatusSaver/%")

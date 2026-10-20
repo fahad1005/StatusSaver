@@ -24,6 +24,12 @@ import android.content.Context
 //    auto-save uses as its duplicate guard — automatic saves update it
 //    too (via SaveHelper), and so do manual ones, so auto-save never
 //    re-saves a file the user already grabbed by hand.
+// 5) v1.4: whether the one-time setup has EVER been completed (the
+//    wizard's two required steps granted at least once). Once true,
+//    the wizard must never present itself as a fresh setup again — a
+//    sleeping watcher gets ONE slim "Button is asleep — Wake it"
+//    banner instead. Also: whether the user dismissed the optional
+//    autostart step (step 4), so it never nags.
 //
 // Everything here is plain local storage: nothing leaves the phone.
 object Prefs {
@@ -43,6 +49,10 @@ object Prefs {
     private const val KEY_AUTO_SAVE = "auto_save"
     private const val KEY_LAST_SAVED_NAME = "last_saved_name"
     private const val KEY_LAST_SAVED_LEN = "last_saved_len"
+    private const val KEY_SETUP_COMPLETE = "setup_complete"
+    private const val KEY_STEP4_DISMISSED = "step4_dismissed"
+    private const val KEY_SESSION_SNAPSHOT = "session_snapshot"
+    private const val KEY_SESSION_SNAPSHOT_TIME = "session_snapshot_time"
 
     // One observed foreground window, as recorded by the watcher.
     data class LastScreen(
@@ -145,6 +155,78 @@ object Prefs {
         val name = p.getString(KEY_LAST_SAVED_NAME, null) ?: return null
         return name to p.getLong(KEY_LAST_SAVED_LEN, -1L)
     }
+
+    // ---- Status-viewing session snapshot (v1.4.1) ----
+    // When the watcher ENTERS the status viewer it snapshots the
+    // whole .Statuses cache (StatusScanner.snapshot) and stores the
+    // map here; a watcher save later diffs the live cache against
+    // this baseline to find the file WhatsApp fetched for the status
+    // actually being viewed (see StatusWatcherService's session
+    // targeting). Persisted (not just held in memory) so the baseline
+    // survives the process being killed and rebound mid-viewing.
+    //
+    // Serialized as lines "name|size|mtime". WhatsApp cache filenames
+    // are content hashes ([0-9a-f] + .mp4/.jpg/.jpeg/.png), so '|'
+    // and '\n' can never appear inside a name — the format is
+    // unambiguous without escaping.
+    fun saveSessionSnapshot(
+        context: Context,
+        snapshot: Map<String, Pair<Long, Long>>,
+        timeMs: Long
+    ) {
+        val text = snapshot.entries.joinToString("\n") { (name, sizeMtime) ->
+            "$name|${sizeMtime.first}|${sizeMtime.second}"
+        }
+        prefs(context).edit()
+            .putString(KEY_SESSION_SNAPSHOT, text)
+            .putLong(KEY_SESSION_SNAPSHOT_TIME, timeMs)
+            .apply()
+    }
+
+    // The stored baseline, or null if none was ever taken (or the
+    // stored text is unreadable). An EMPTY map is a valid snapshot
+    // (the cache was empty at entry — every file found later is new).
+    fun sessionSnapshot(context: Context): Map<String, Pair<Long, Long>>? {
+        val p = prefs(context)
+        if (p.getLong(KEY_SESSION_SNAPSHOT_TIME, 0L) == 0L) return null
+        val text = p.getString(KEY_SESSION_SNAPSHOT, null) ?: return null
+        if (text.isEmpty()) return emptyMap()
+        val out = LinkedHashMap<String, Pair<Long, Long>>()
+        for (line in text.split("\n")) {
+            val parts = line.split("|")
+            if (parts.size != 3) continue
+            val size = parts[1].toLongOrNull() ?: continue
+            val mtime = parts[2].toLongOrNull() ?: continue
+            out[parts[0]] = size to mtime
+        }
+        return out
+    }
+
+    // ---- Setup progress (v1.4) ----
+
+    // TRUE once the wizard's required steps (accessibility connected +
+    // file access) have been observed done at least once. MainActivity
+    // sets it the first time refreshWizard sees setup complete; from
+    // then on the wizard NEVER re-presents as a fresh setup — if the
+    // watcher later falls asleep (OEM battery managers disconnect it
+    // while the Settings switch still says On), the home screen shows
+    // a single "Button is asleep — Wake it" banner instead of making
+    // the user feel they must redo the whole setup.
+    fun setSetupComplete(context: Context, complete: Boolean) {
+        prefs(context).edit().putBoolean(KEY_SETUP_COMPLETE, complete).apply()
+    }
+
+    fun isSetupComplete(context: Context): Boolean =
+        prefs(context).getBoolean(KEY_SETUP_COMPLETE, false)
+
+    // The optional autostart step (wizard step 4) is advisory only.
+    // "Done / Skip" on it lands here so it never shows again.
+    fun setWizardStep4Dismissed(context: Context, dismissed: Boolean) {
+        prefs(context).edit().putBoolean(KEY_STEP4_DISMISSED, dismissed).apply()
+    }
+
+    fun isWizardStep4Dismissed(context: Context): Boolean =
+        prefs(context).getBoolean(KEY_STEP4_DISMISSED, false)
 
     // Null until the first save attempt has happened.
     fun lastSaveAttempt(context: Context): LastSave? {

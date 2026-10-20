@@ -22,15 +22,25 @@
     <!-- Media access on Android 13+ -->
     <uses-permission android:name="android.permission.READ_MEDIA_IMAGES" />
     <uses-permission android:name="android.permission.READ_MEDIA_VIDEO" />
+    <!-- v1.4: so BootReceiver can do its silent post-reboot warm-up
+         (the system re-binding the accessibility watcher is the real
+         recovery; the receiver only refreshes persisted state). -->
+    <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
     <!-- v1.3: FOREGROUND_SERVICE, FOREGROUND_SERVICE_SPECIAL_USE and
          POST_NOTIFICATIONS were removed — they existed only for the
          retired FloatingService and its persistent notification, and
          nothing else in the app (AdMob included) needs them. -->
 
+    <!-- v1.4.1 launcher icon: @mipmap/ic_launcher resolves to an
+         ADAPTIVE icon on Android 8+ (green background + white arrow
+         foreground, mipmap-anydpi-v26) and to a layer-list with the
+         same two layers below that. Until v1.4.1 the icon attributes
+         pointed straight at the white-arrow foreground vector over
+         transparency — a blank white tile on light launchers. -->
     <application
         android:allowBackup="true"
-        android:icon="@drawable/ic_launcher_foreground"
-        android:roundIcon="@drawable/ic_launcher_foreground"
+        android:icon="@mipmap/ic_launcher"
+        android:roundIcon="@mipmap/ic_launcher_round"
         android:label="@string/app_name"
         android:supportsRtl="true"
         android:theme="@style/Theme.StatusSaver"
@@ -76,6 +86,17 @@
                 android:name="android.accessibilityservice"
                 android:resource="@xml/accessibility_service_config" />
         </service>
+
+        <!-- v1.4: silent post-reboot warm-up. Receives only the
+             system's own protected BOOT_COMPLETED broadcast, so
+             exported=false is safe and correct. -->
+        <receiver
+            android:name=".BootReceiver"
+            android:exported="false">
+            <intent-filter>
+                <action android:name="android.intent.action.BOOT_COMPLETED" />
+            </intent-filter>
+        </receiver>
 
     </application>
 </manifest>

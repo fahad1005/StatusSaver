@@ -12,9 +12,9 @@ import android.webkit.MimeTypeMap
 import java.io.File
 
 // SaveHelper: copies one status file into the public gallery.
-// Images land in Pictures/StatusSaver, videos in Movies/StatusSaver
-// (see the v1.1 note in saveViaMediaStore — that distinction is the fix
-// for "video says saved but never shows in the gallery").
+// EVERYTHING lands in ONE album: Pictures/StatusSaver (v1.4 — see the
+// note in saveViaMediaStore; v1.1–v1.3 split videos into
+// Movies/StatusSaver and users couldn't find them).
 //
 // Returns true ONLY after the save is verified: every byte copied and,
 // on Android 10+, the MediaStore row queried back with matching size
@@ -31,9 +31,64 @@ import java.io.File
 //    WERE in the Files app immediately but the phone's Gallery app
 //    didn't surface them — OEM galleries lean on these dates and on
 //    scanner indexing, so we now feed both.
+//
+// v1.4 addition — FILE READINESS (BUG 2): a tap can land while
+// WhatsApp is still WRITING the status file (a video still streaming
+// into the cache). Copying at that moment captured a truncated file —
+// some copies then failed verification, some produced short/broken
+// videos; either way the user saw "some download, some don't". Before
+// copying we now wait for the file's size to stop changing (see
+// awaitStableFile). It lives here, in the one save path, so button
+// saves, automatic saves and in-app grid saves all benefit.
 object SaveHelper {
 
     private const val TAG = "SaveHelper"
+
+    // File-readiness polling: check the length every 300 ms; the file
+    // is "ready" when the length is unchanged across 2 consecutive
+    // polls; give up after the budget — ~5 s for videos (they stream
+    // into the cache longer; Fahad's recording showed statuses still
+    // buffering while he tapped), ~3 s for images — and copy whatever
+    // exists (the read-back verification still decides honestly).
+    private const val STABILITY_POLL_MS = 300L
+    private const val STABILITY_POLLS_NEEDED = 2
+    private const val STABILITY_MAX_POLLS_VIDEO = 17 // ≈ 5.1 s
+    private const val STABILITY_MAX_POLLS_IMAGE = 10 // ≈ 3.0 s
+
+    // Waits until the file's size stops growing. Pure patience, no
+    // failure mode of its own: any oddity (file vanishing mid-wait,
+    // interruption) just ends the wait and lets the copy + verify
+    // below tell the truth.
+    private fun awaitStableFile(file: File, isVideo: Boolean) {
+        val maxPolls =
+            if (isVideo) STABILITY_MAX_POLLS_VIDEO else STABILITY_MAX_POLLS_IMAGE
+        try {
+            var lastLength = file.length()
+            var stablePolls = 0
+            var polls = 0
+            while (polls < maxPolls) {
+                Thread.sleep(STABILITY_POLL_MS)
+                polls++
+                val nowLength = file.length()
+                if (nowLength == lastLength && nowLength > 0L) {
+                    stablePolls++
+                    if (stablePolls >= STABILITY_POLLS_NEEDED) return
+                } else {
+                    stablePolls = 0
+                    lastLength = nowLength
+                }
+            }
+            Log.i(
+                TAG,
+                "File size still changing after ${maxPolls * STABILITY_POLL_MS} ms " +
+                    "wait: ${file.name}"
+            )
+        } catch (e: InterruptedException) {
+            Thread.currentThread().interrupt()
+        } catch (e: Exception) {
+            Log.w(TAG, "Stability wait skipped for ${file.name}", e)
+        }
+    }
 
     // viaAuto (final spec): true when the watcher saved on its own
     // because the user turned on "Auto-save every status I view". The
@@ -47,6 +102,17 @@ object SaveHelper {
     ): Boolean {
         var failureReason = ""
         val ok = try {
+            // v1.4: never copy a file WhatsApp may still be writing.
+            awaitStableFile(file, isVideo)
+            if (file.length() <= 0L) {
+                // Nothing to copy: WhatsApp hasn't written the status
+                // yet (or already cleared it). Fail honestly so the
+                // caller toasts "Save failed" instead of "saving" an
+                // empty shell — and the reason lands in Diagnostics.
+                throw IllegalStateException(
+                    "Status file is empty — WhatsApp may still be downloading it"
+                )
+            }
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
                 saveViaMediaStore(context, file, isVideo)
             } else {
@@ -108,20 +174,31 @@ object SaveHelper {
     // bytes while the row is IS_PENDING, then publish it (IS_PENDING = 0)
     // and verify the published row.
     //
-    // v1.1 FIX — the video bug: v1 inserted VIDEOS into the Video
-    // collection with RELATIVE_PATH "Pictures/StatusSaver". Gallery apps
-    // (and MediaStore's folder views) surface videos from the Movies/
-    // tree; a video parked under Pictures/ was written to disk but never
-    // showed up where the user looks for videos — while images, correctly
-    // paired (Images collection + Pictures path), worked fine. Videos now
-    // go to Movies/StatusSaver.
+    // v1.1 FIX (history) — the video bug: v1 inserted VIDEOS into the
+    // Video collection with RELATIVE_PATH "Pictures/StatusSaver", and
+    // gallery VIDEO VIEWS didn't surface them; images, correctly paired
+    // (Images collection + Pictures path), worked. v1.1→v1.3 therefore
+    // sent videos to Movies/StatusSaver.
+    //
+    // v1.4 REVERSAL — ONE album (BUG 5): Fahad's v1.3 recording ends in
+    // his Gallery, where the only StatusSaver album he can find holds
+    // 3 images — the videos sit in a separate Movies/StatusSaver album
+    // that vivo's Gallery effectively buries, so to the user "videos
+    // don't save". The Play-Store category leader uses ONE album. So:
+    // the COLLECTION stays type-correct (videos → Video collection,
+    // images → Images collection, MIME untouched), but the
+    // RELATIVE_PATH is "Pictures/StatusSaver" for BOTH — MediaStore
+    // accepts video rows under a Pictures path, folder/album views
+    // show the mixed album "StatusSaver", and there is exactly one
+    // place to look. My Saved still reads the old Movies/StatusSaver
+    // path so v1.0–v1.3 saves remain listed.
     private fun saveViaMediaStore(context: Context, file: File, isVideo: Boolean): Boolean {
         val collection = if (isVideo) {
             MediaStore.Video.Media.getContentUri(MediaStore.VOLUME_EXTERNAL_PRIMARY)
         } else {
             MediaStore.Images.Media.getContentUri(MediaStore.VOLUME_EXTERNAL_PRIMARY)
         }
-        val relativePath = if (isVideo) "Movies/StatusSaver" else "Pictures/StatusSaver"
+        val relativePath = "Pictures/StatusSaver"
         val mime = mimeType(file, isVideo)
         val resolver = context.contentResolver
 

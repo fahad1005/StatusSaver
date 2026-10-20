@@ -1,12 +1,17 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!--
-  Main screen: one-time Allow wizard (3 steps) → floating-button
-  toggle → auto-save switch → Diagnostics card → tabs (Recent | My
-  Saved) + grid → banner ad. All ids are used by MainActivity.kt.
+  Main screen: one-time Allow wizard (4 steps; step 4 optional) →
+  floating-button toggle → auto-save switch → Diagnostics card → tabs
+  (Recent | My Saved) + grid → banner ad. All ids are used by
+  MainActivity.kt.
   v1.3 final spec: the old permission cards became the wizard; the
   overlay and notification cards are gone for good — they belonged to
   the retired FloatingService; the accessibility watcher owns the
   button now.
+  v1.4: the asleepBanner (returning users whose watcher was put to
+  sleep get ONE banner + Wake button, never the wizard again) and the
+  optional stepAutostart card live inside wizardContainer; the
+  Diagnostics card gains an Auto-save row.
 -->
 <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:ads="http://schemas.android.com/apk/res-auto"
@@ -66,6 +71,39 @@
                     android:text="@string/all_set"
                     android:textSize="14sp"
                     android:visibility="gone" />
+
+                <!-- v1.4: returning users only — shown INSTEAD of the
+                     wizard when setup was completed before but the
+                     watcher is currently not connected (the phone put
+                     the button's engine to sleep). One banner, one
+                     button; MainActivity toggles its visibility. -->
+                <LinearLayout
+                    android:id="@+id/asleepBanner"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="10dp"
+                    android:orientation="vertical"
+                    android:visibility="gone">
+
+                    <TextView
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text="@string/banner_asleep_title"
+                        android:textStyle="bold" />
+
+                    <TextView
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text="@string/banner_asleep_text"
+                        android:textSize="13sp" />
+
+                    <Button
+                        android:id="@+id/btnWake"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="8dp"
+                        android:text="@string/btn_wake" />
+                </LinearLayout>
 
                 <!-- Step 1: Accessibility -->
                 <LinearLayout
@@ -177,6 +215,46 @@
                     android:text="@string/done_battery"
                     android:textSize="14sp"
                     android:visibility="gone" />
+
+                <!-- Step 4: Autostart (v1.4, OPTIONAL — never a gate.
+                     Shown until the user taps Done/Skip; MainActivity
+                     toggles its visibility from Prefs. No "done" row:
+                     there is no reliable done-check for a settings
+                     switch in another app.) -->
+                <LinearLayout
+                    android:id="@+id/stepAutostart"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="10dp"
+                    android:orientation="vertical"
+                    android:visibility="gone">
+
+                    <TextView
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text="@string/step4_title"
+                        android:textStyle="bold" />
+
+                    <TextView
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text="@string/step4_text"
+                        android:textSize="13sp" />
+
+                    <Button
+                        android:id="@+id/btnStepAutostart"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="8dp"
+                        android:text="@string/btn_autostart" />
+
+                    <Button
+                        android:id="@+id/btnStepAutostartSkip"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="4dp"
+                        android:text="@string/btn_skip_step" />
+                </LinearLayout>
             </LinearLayout>
 
             <!-- Floating-button toggle -->
@@ -275,6 +353,13 @@
 
                 <TextView
                     android:id="@+id/diagLastSave"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:fontFamily="monospace"
+                    android:textSize="12sp" />
+
+                <TextView
+                    android:id="@+id/diagAutoSave"
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
                     android:fontFamily="monospace"

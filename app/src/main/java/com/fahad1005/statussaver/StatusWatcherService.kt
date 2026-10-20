@@ -46,15 +46,22 @@ import java.util.concurrent.TimeUnit
 //    visibility is package-level, re-derived on EVERY window event as
 //    a pure function of those two facts, never edge-triggered only.
 //    The status-screen detector below still runs and its verdict is
-//    still recorded for Diagnostics; it now drives the TAP instead of
-//    the visibility (smart tap) and the optional auto-save.
-//  - tap = smart: if a status is actually being viewed, save it — the
-//    exact code path FloatingService used (StatusScanner + SaveHelper,
-//    verified save, honest toast); anywhere else in WhatsApp, explain
-//    ("Open a status first…") instead of silently doing nothing,
+//    still recorded for Diagnostics; since v1.4 it drives ONLY the
+//    optional auto-save (the tap was ungated — see onButtonTap).
+//  - tap = save: a tap in WhatsApp ALWAYS saves the status being
+//    viewed — the exact code path FloatingService used (StatusScanner +
+//    SaveHelper, verified save, honest toast). v1.3's matcher gate
+//    ("smart tap") refused some real statuses; v1.4 removed it: the
+//    button only exists inside WhatsApp, so a tap can only mean
+//    "save what I'm looking at". v1.4.1: WHICH file is "what I'm
+//    looking at" is decided by session targeting (snapshot the cache
+//    on viewer entry, save what appeared/changed since) — "newest by
+//    mtime" saved the previous status in the field.
 //  - optional auto-save: if the user switched it on, entering the
-//    status viewer saves the newest status by itself (debounced,
-//    duplicate-guarded).
+//    status viewer saves that status by itself (debounced,
+//    duplicate-guarded, session-targeted since v1.4.1, and — v1.4 —
+//    armed only by a LIVE transition witnessed in this binding
+//    session, never by restored state).
 // If the process dies, the system rebinds this one service and
 // onServiceConnected re-reads the persisted choice + last-screen record
 // and restores the correct button state. The persistent notification
@@ -113,6 +120,15 @@ class StatusWatcherService : AccessibilityService() {
         // single status opening produces into one save.
         private const val AUTO_SAVE_DEBOUNCE_MS = 900L
 
+        // Hide grace (v1.4, BUG 4): a NON-WhatsApp foreground must
+        // persist this long before the button is hidden. Window events
+        // during WhatsApp-internal transitions (status swipes, dialogs,
+        // split-second system windows) used to flip the foreground
+        // package back and forth and the button visibly flickered —
+        // present on one status, gone on the next, back again. Showing
+        // stays instant; only hiding waits for the evidence to settle.
+        private const val HIDE_GRACE_MS = 600L
+
         // ---- Diagnostic state (read by MainActivity's Diagnostics card) ----
         // TRUE only while this service is actually bound by Android and
         // receiving events. Distinct from the Settings toggle on purpose:
@@ -160,10 +176,26 @@ class StatusWatcherService : AccessibilityService() {
     // Pending auto-save, if any (see AUTO_SAVE_DEBOUNCE_MS).
     private var pendingAutoSave: Runnable? = null
 
+    // Auto-save session guard (v1.4, BUG 3). FALSE at every (re)bind.
+    // It becomes TRUE only when this binding session has seen a LIVE
+    // window event for a WhatsApp screen that is NOT the status viewer
+    // (chat list, a chat, …). Rationale: state restored in
+    // onServiceConnected is REPLAYED evidence, not a live transition —
+    // if the process died while the user sat in a status and the system
+    // rebinds us mid-status, the first live status event must NOT read
+    // as "the user just opened a status" and save by itself. Only once
+    // the watcher has genuinely watched the user somewhere else in
+    // WhatsApp first may a later entry into the viewer arm auto-save.
+    private var autoSaveArmedThisSession = false
+
     // ---- The button (owned by this service since v1.3) ----
     private var windowManager: WindowManager? = null
     private var button: ImageView? = null
     private var buttonAttached = false
+
+    // A scheduled hide, inside its grace window (v1.4). Cancelled the
+    // moment WhatsApp is the foreground again.
+    private var pendingHide: Runnable? = null
 
     override fun onAccessibilityEvent(event: AccessibilityEvent?) {
         if (event == null) return
@@ -194,13 +226,28 @@ class StatusWatcherService : AccessibilityService() {
         // read the card never overwrites the evidence.
         Prefs.saveLastScreen(this, pkg, cls, matched, System.currentTimeMillis())
 
+        // A live WhatsApp screen that is NOT the status viewer is what
+        // arms auto-save for this binding session (v1.4 guard — see
+        // autoSaveArmedThisSession). Live events only: nothing restored
+        // from Prefs can set this.
+        if (!matched && pkg in WHATSAPP_PACKAGES) {
+            autoSaveArmedThisSession = true
+        }
+
         // Auto-save reacts to TRANSITIONS into the status viewer only:
         // arm the debounce when a status starts being viewed, cancel
-        // it the moment the viewer is left.
+        // it the moment the viewer is left. armAutoSave additionally
+        // refuses while this session hasn't been armed by a live
+        // non-status event (restored state replays).
         val wasStatus = statusOnScreen
         statusOnScreen = matched
         whatsappOnScreen = pkg in WHATSAPP_PACKAGES
         if (matched && !wasStatus) {
+            // v1.4.1: a NEW status-viewing session starts here. Take
+            // the session snapshot FIRST (the baseline the save
+            // targeting diffs against), then arm auto-save — its
+            // debounce fires long after the snapshot lands.
+            takeSessionSnapshot()
             armAutoSave()
         } else if (!matched && wasStatus) {
             cancelAutoSave()
@@ -218,7 +265,12 @@ class StatusWatcherService : AccessibilityService() {
         super.onServiceConnected()
         instance = this
         watcherConnected = true
-        Log.i(TAG, "Status watcher connected (v1.3: watcher owns the button)")
+        // New binding session: auto-save starts DISARMED (v1.4). The
+        // state restored just below is for the BUTTON's visibility —
+        // it must never arm or fire an auto-save (BUG 3: "some statuses
+        // download by themselves" after the watcher came back).
+        autoSaveArmedThisSession = false
+        Log.i(TAG, "Status watcher connected (watcher owns the button)")
         // Self-heal handshake: we may have been (re)bound after the
         // whole process was killed. Re-read the persisted evidence and
         // evaluate the current screen as far as it lets us: a FRESH
@@ -255,7 +307,9 @@ class StatusWatcherService : AccessibilityService() {
         if (instance === this) instance = null
         statusOnScreen = false
         whatsappOnScreen = false
+        autoSaveArmedThisSession = false
         cancelAutoSave()
+        cancelPendingHide()
         detachButton()
         Log.i(TAG, "Status watcher unbound")
         return super.onUnbind(intent)
@@ -268,31 +322,73 @@ class StatusWatcherService : AccessibilityService() {
         if (instance === this) instance = null
         statusOnScreen = false
         whatsappOnScreen = false
+        autoSaveArmedThisSession = false
         cancelAutoSave()
+        cancelPendingHide()
         detachButton()
         super.onDestroy()
     }
 
     // ---- The floating button ----
 
-    // The ONE rule for the button's existence (final spec — visibility
-    // is PACKAGE-level):
+    // The rule for the button's existence (final spec — visibility is
+    // PACKAGE-level):
     //   visible  ⇔  user switched it ON (persisted choice)
     //               AND WhatsApp / WhatsApp Business is in the foreground.
-    // updateButton() re-derives this from scratch on EVERY window
-    // event, on (re)connect, and whenever MainActivity flips the
-    // choice (via reevaluate()) — it is a pure function of the two
-    // facts above, never edge-triggered: attachButton() re-adds the
-    // view if it turns out missing, detachButton() removes it if it
-    // turns out present. Whether a STATUS is on screen no longer gates
-    // visibility; it gates the tap (see onButtonTap) and auto-save.
+    // updateButton() re-derives this on EVERY window event, on
+    // (re)connect, and whenever MainActivity flips the choice (via
+    // reevaluate()). Whether a STATUS is on screen never gates
+    // visibility; it drives auto-save only (the tap is ungated).
+    //
+    // v1.4 hysteresis (BUG 4 — the flicker): SHOWING applies the rule
+    // instantly and idempotently (attachButton self-verifies: a view
+    // that should be up but isn't gets re-attached; a view already up
+    // is left strictly alone — no detach+reattach churn). HIDING is
+    // debounced: a non-WhatsApp foreground must persist for
+    // HIDE_GRACE_MS before the button comes down, so the split-second
+    // foreign windows WhatsApp throws up mid-transition (and swiping
+    // between statuses) can never blink the button. The one exception
+    // is the user's own OFF switch: that hides immediately.
     private fun updateButton() {
         try {
-            val shouldShow = Prefs.isButtonEnabled(this) && whatsappOnScreen
-            if (shouldShow) attachButton() else detachButton()
+            val enabled = Prefs.isButtonEnabled(this)
+            when {
+                enabled && whatsappOnScreen -> {
+                    cancelPendingHide()
+                    attachButton()
+                }
+                enabled -> scheduleHide()
+                else -> {
+                    cancelPendingHide()
+                    detachButton()
+                }
+            }
         } catch (e: Exception) {
             Log.e(TAG, "updateButton failed", e)
         }
+    }
+
+    // Start the hide grace clock (once). The runnable re-derives at
+    // fire time — if WhatsApp came back it was cancelled before this
+    // could run; if the foreground is STILL not WhatsApp after the
+    // grace, the hide is real and applies.
+    private fun scheduleHide() {
+        if (pendingHide != null) return
+        val task = Runnable {
+            pendingHide = null
+            try {
+                if (!whatsappOnScreen) detachButton()
+            } catch (e: Exception) {
+                Log.e(TAG, "Delayed hide failed", e)
+            }
+        }
+        pendingHide = task
+        handler.postDelayed(task, HIDE_GRACE_MS)
+    }
+
+    private fun cancelPendingHide() {
+        pendingHide?.let { handler.removeCallbacks(it) }
+        pendingHide = null
     }
 
     private fun attachButton() {
@@ -312,6 +408,11 @@ class StatusWatcherService : AccessibilityService() {
             wm.addView(view, buttonLayoutParams())
             buttonAttached = true
             isButtonVisible = true
+            // Decision log (v1.4): applied changes ONLY — this line
+            // must mean the window really went up, so the Diagnostics
+            // "Button visible now" row and the log can never disagree
+            // with the screen.
+            Log.i(TAG, "Button decision: SHOW (attached)")
         } catch (e: IllegalStateException) {
             // "View already added" — the window IS up; our flag was
             // the only thing wrong. Correct it from the same evidence.
@@ -331,9 +432,11 @@ class StatusWatcherService : AccessibilityService() {
 
     private fun detachButton() {
         val view = button
+        var removed = false
         if (view != null && view.parent != null) {
             try {
                 windowManager?.removeView(view)
+                removed = true
             } catch (e: Exception) {
                 // Already gone — nothing to do.
                 Log.w(TAG, "Button removeView failed (already detached?)", e)
@@ -341,6 +444,8 @@ class StatusWatcherService : AccessibilityService() {
         }
         buttonAttached = false
         isButtonVisible = false
+        // Decision log (v1.4): only when a window really came down.
+        if (removed) Log.i(TAG, "Button decision: HIDE (detached)")
     }
 
     // Same look as v1–v1.2: 56dp WhatsApp-green circle, white download
@@ -384,64 +489,133 @@ class StatusWatcherService : AccessibilityService() {
         }
     }
 
-    // ---- Tap action: SMART TAP (final spec) ----
-    // The button is visible on EVERY WhatsApp screen now, so a tap no
-    // longer implies "a status is open". Rule:
-    //  - a status IS being viewed → save it (the flow below);
-    //  - anything else (chat list, a chat, settings…) → say so, plainly:
-    //    "Open a status first, then tap the green button."
-    // No silent no-ops: every tap gets either a save or an explanation.
+    // ---- Tap action: UNGATED MANUAL TAP (v1.4, BUG 2) ----
+    // v1.3's "smart tap" refused to save unless the status-class
+    // matcher said MATCH — and when WhatsApp's build named its viewer
+    // in a way the matcher missed (or the last event was a transient
+    // window), a tap in a REAL status got "Open a status first" and
+    // saved nothing. Fahad's field verdict: "some images and videos
+    // download, some don't."
+    //
+    // v1.4 removes the gate. The button only EXISTS while WhatsApp is
+    // in the foreground, so a tap always means "save what I'm looking
+    // at": we save the newest status file, every time. The save flow
+    // still discloses honestly when that file is minutes old (the
+    // age-naming toast) — saving the newest and SAYING which one beats
+    // refusing. The class matcher now drives ONLY auto-save, where a
+    // wrong guess has no user waiting on it.
+    //
+    // The non-WhatsApp branch is defensive only (the button shouldn't
+    // be up at all then): it keeps the friendly explanation rather
+    // than saving blindly. A pending hide counts as "still WhatsApp":
+    // it means a foreign window flipped the foreground within the
+    // last ~600 ms mid-transition while the button stayed up (BUG 4's
+    // grace) — a tap in that window is a WhatsApp tap.
     private fun onButtonTap() {
-        if (isStatusBeingViewed()) {
-            saveNewestStatus()
+        if (whatsappOnScreen || pendingHide != null) {
+            saveCurrentStatus()
         } else {
             toastOnUi(getString(R.string.open_status_first))
         }
     }
 
-    // "Being viewed" = the live detector state, with the persisted
-    // record as back-up: a MATCH recorded <30 s ago still counts (the
-    // tap itself, a popup, or a transient window may have been the
-    // last event we processed).
-    private fun isStatusBeingViewed(): Boolean {
-        if (statusOnScreen) return true
-        val last = try {
-            Prefs.lastScreen(this)
-        } catch (e: Exception) {
-            null
-        } ?: return false
-        return last.matched &&
-            System.currentTimeMillis() - last.timeMs < FRESH_MS
-    }
+    // ---- Session targeting (v1.4.1) ----
+    // Which file is the user actually looking at? Pre-v1.4.1 the save
+    // took "the newest file in .Statuses" — and that is NOT a promise
+    // WhatsApp keeps. It writes statuses into the cache on its own
+    // schedule (pre-caching while the status list is scrolled,
+    // finishing downloads late), so the newest file was sometimes the
+    // PREVIOUS status. Fahad's screen recording shows it plainly: he
+    // taps on a gem status and the app saves the truck video from the
+    // status before it — the toast even names the same wrong file
+    // twice.
+    //
+    // The fix is a baseline + diff. Every time the watcher ENTERS the
+    // status viewer (a live transition into the matched state — the
+    // same transition that arms auto-save), it snapshots the whole
+    // cache into Prefs: filename → (size, mtime). A watcher save then
+    // diffs the live cache against that snapshot:
+    //   - files that are NEW since the snapshot, or whose size/mtime
+    //     CHANGED, are the candidates — what WhatsApp fetched or
+    //     finished for THIS viewing;
+    //   - exactly one candidate → save it;
+    //   - several → the latest-mtime candidate (WhatsApp fetched the
+    //     current status most recently; anything else it touched
+    //     during the same viewing was pre-fetch, written earlier);
+    //   - none — re-viewing a fully cached status, WhatsApp wrote
+    //     nothing → fall back to newest overall (the old heuristic),
+    //     and the age-disclosure toast below names the file so the
+    //     user can SEE which one it was.
+    // Only watcher saves (button tap + auto-save) use this; the in-app
+    // grid's per-item Save buttons already name their file explicitly.
 
-    // ---- Save the newest status ----
-    // Moved verbatim from FloatingService (v1.1/v1.2): same scanner, same
-    // verified SaveHelper path, same honest toasts. Runs on a background
-    // thread, and every failure is caught + logged — v1 taught us that
-    // an uncaught exception here kills the whole process (and, now,
-    // the watcher itself).
-
-    private fun saveNewestStatus() {
+    // Called on the status-entry transition. Runs the directory scan
+    // on a background thread: the event handler must stay light, and
+    // the snapshot has the whole viewing session to land before any
+    // save can diff against it.
+    private fun takeSessionSnapshot() {
         Thread {
             try {
-                val newest = StatusScanner.newest()
-                if (newest == null) {
+                val snap = StatusScanner.snapshot()
+                Prefs.saveSessionSnapshot(this, snap, System.currentTimeMillis())
+                Log.i(TAG, "Session snapshot: ${snap.size} cached statuses")
+            } catch (e: Exception) {
+                Log.e(TAG, "Session snapshot failed", e)
+            }
+        }.start()
+    }
+
+    // The watcher's save target right now, per the rules above. Null
+    // only when the cache holds no status files at all.
+    private fun resolveSessionTarget(): StatusScanner.StatusFile? {
+        val snapshot = try {
+            Prefs.sessionSnapshot(this)
+        } catch (e: Exception) {
+            Log.e(TAG, "Could not read session snapshot", e)
+            null
+        }
+        if (snapshot != null) {
+            val changed = StatusScanner.changedSince(snapshot)
+            if (changed.isNotEmpty()) {
+                Log.i(
+                    TAG,
+                    "Session target: ${changed.first().file.name} " +
+                        "(${changed.size} changed since entry)"
+                )
+                return changed.first()
+            }
+        }
+        return StatusScanner.newest()
+    }
+
+    // ---- Save the status being viewed ----
+    // The save itself is the same verified SaveHelper path since
+    // v1.1/v1.2 (stability wait + byte-count + read-back verification,
+    // honest toasts). Runs on a background thread, and every failure
+    // is caught + logged — v1 taught us that an uncaught exception
+    // here kills the whole process (and, now, the watcher itself).
+
+    private fun saveCurrentStatus() {
+        Thread {
+            try {
+                val target = resolveSessionTarget()
+                if (target == null) {
                     toastOnUi(getString(R.string.no_statuses))
                     return@Thread
                 }
-                val ok = SaveHelper.saveToGallery(this, newest.file, newest.isVideo)
-                // Sanity check: if the newest file is much older than "now",
+                val ok = SaveHelper.saveToGallery(this, target.file, target.isVideo)
+                // Sanity check: if the saved file is much older than "now",
                 // the user probably isn't looking at it — still save it,
                 // but say which file it was.
                 val ageMin = TimeUnit.MILLISECONDS.toMinutes(
-                    System.currentTimeMillis() - newest.file.lastModified()
+                    System.currentTimeMillis() - target.file.lastModified()
                 )
                 val msg = if (!ok) {
                     getString(R.string.save_failed)
                 } else if (ageMin <= 2) {
                     getString(R.string.saved_gallery)
                 } else {
-                    getString(R.string.saved_which_file, newest.file.name, ageMin)
+                    getString(R.string.saved_which_file, target.file.name, ageMin)
                 }
                 toastOnUi(msg)
             } catch (e: Exception) {
@@ -461,18 +635,26 @@ class StatusWatcherService : AccessibilityService() {
         }
     }
 
-    // ---- Auto-save (final spec, default OFF) ----
+    // ---- Auto-save (final spec, default OFF; session guard v1.4) ----
     // When the user turns on "Auto-save every status I view", entering
     // the status viewer arms a short timer; if the user is still (or
-    // again) viewing a status when it fires, the newest status saves
-    // itself — no tap. Duplicate guard: SaveHelper records every
+    // again) viewing a status when it fires, the session-targeted
+    // status saves itself — no tap. Duplicate guard: SaveHelper records every
     // successful save's identity (name + length) in Prefs, manual saves
     // included; auto-save skips the newest file if it IS that record,
     // so re-viewing a status never saves it twice. Attempts are
     // recorded by SaveHelper with reason "auto".
+    //
+    // v1.4 session guard: arming ALSO requires
+    // autoSaveArmedThisSession — proof that this binding session has
+    // already seen the user live on a non-status WhatsApp screen.
+    // Without it, a watcher rebound mid-status (process death, reboot)
+    // replayed its restored state as a fresh "entry" and statuses
+    // appeared to download by themselves.
 
     private fun armAutoSave() {
         cancelAutoSave()
+        if (!autoSaveArmedThisSession) return
         if (!Prefs.isAutoSave(this)) return
         val task = Runnable {
             pendingAutoSave = null
@@ -490,23 +672,29 @@ class StatusWatcherService : AccessibilityService() {
     private fun autoSaveNow() {
         Thread {
             try {
-                val newest = StatusScanner.newest() ?: return@Thread
+                // v1.4.1: auto-save targets the SESSION file too (see
+                // resolveSessionTarget) — the status that brought us
+                // here, not whatever happens to be newest in the cache.
+                val target = resolveSessionTarget() ?: return@Thread
                 val already = Prefs.lastSavedFile(this)
                 if (already != null &&
-                    already.first == newest.file.name &&
-                    already.second == newest.file.length()
+                    already.first == target.file.name &&
+                    already.second == target.file.length()
                 ) {
-                    Log.i(TAG, "Auto-save skipped (already saved): ${newest.file.name}")
+                    Log.i(TAG, "Auto-save skipped (already saved): ${target.file.name}")
                     return@Thread
                 }
                 val ok = SaveHelper.saveToGallery(
-                    this, newest.file, newest.isVideo, viaAuto = true
+                    this, target.file, target.isVideo, viaAuto = true
                 )
-                // Brief confirmation is fine for an actual save; a
-                // failure stays silent here (no toast spam while the
-                // user is just browsing) but IS recorded — the
-                // Diagnostics card's Last save attempt row shows it.
-                if (ok) toastOnUi(getString(R.string.saved_gallery))
+                // Brief confirmation is fine for an actual save — and
+                // since v1.4 it SAYS it was automatic ("Auto-saved ✓"),
+                // so an automatic save is never mistaken for something
+                // the user tapped (or for the app acting on its own
+                // without a rule). A failure stays silent here (no
+                // toast spam while the user is just browsing) but IS
+                // recorded — Diagnostics' Last save attempt row shows it.
+                if (ok) toastOnUi(getString(R.string.autosaved_gallery))
             } catch (e: Exception) {
                 Log.e(TAG, "Auto-save failed", e)
             }

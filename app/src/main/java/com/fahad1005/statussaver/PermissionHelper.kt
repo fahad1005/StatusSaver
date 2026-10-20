@@ -167,6 +167,53 @@ object PermissionHelper {
         }
     }
 
+    // 4) Autostart (v1.4, wizard step 4 — OPTIONAL, advisory only, never
+    //    a gate). Some OEMs hide an "Autostart" switch that decides
+    //    whether an app may come back on its own after a reboot or a
+    //    battery-manager kill; if it's off, the watcher can't return
+    //    until the user opens the app — the v1.3 "every time I have to
+    //    start and allow it" complaint. There is NO standard Android
+    //    screen for this, so we try the well-known OEM settings
+    //    activities in turn and land on the app-details page if none
+    //    of them exist. This is a settings DEEP-LINK only: opening the
+    //    screen changes nothing by itself, the user flips the switch,
+    //    and no app behaviour branches on the phone's brand.
+    fun requestAutostartSettings(activity: Activity) {
+        val candidates = listOf(
+            // Xiaomi / Redmi / Poco (MIUI permission centre)
+            ComponentName(
+                "com.miui.securitycenter",
+                "com.miui.permcenter.autostart.AutoStartManagementActivity"
+            ),
+            // vivo / iQOO (permission manager, background-start screen)
+            ComponentName(
+                "com.vivo.permissionmanager",
+                "com.vivo.permissionmanager.activity.BgStartUpManagerActivity"
+            ),
+            // Oppo / Realme (ColorOS safeguard) and OnePlus (Oplus)
+            ComponentName(
+                "com.coloros.safeguard",
+                "com.coloros.safeguard.permission.startup.StartupAppListActivity"
+            ),
+            ComponentName(
+                "com.oplus.safeguard",
+                "com.oplus.safeguard.permission.startup.StartupAppListActivity"
+            )
+        )
+        for (component in candidates) {
+            if (tryStart(activity, Intent().setComponent(component))) return
+        }
+        // No OEM autostart screen on this phone — the app-details page
+        // always exists (Autostart, where offered, also lives there).
+        tryStart(
+            activity,
+            Intent(
+                Settings.ACTION_APPLICATION_DETAILS_SETTINGS,
+                Uri.parse("package:${activity.packageName}")
+            )
+        )
+    }
+
     // startActivity that reports failure instead of crashing the wizard
     // when an OEM build doesn't know an action.
     private fun tryStart(activity: Activity, intent: Intent): Boolean {

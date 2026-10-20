@@ -10,24 +10,38 @@
     <string name="onboarding_title">Save any WhatsApp status in one tap</string>
     <string name="onboarding_sub">A few quick taps and you\'re set — the green button then lives inside WhatsApp, ready whenever you are.</string>
 
-    <!-- One-time Allow wizard (final spec): three steps, one big Allow
-         button each, every step deep-links to the exact system screen.
-         Steps 1 + 2 are required; step 3 is a strong recommendation. -->
+    <!-- One-time Allow wizard (final spec; step 4 added in v1.4): one
+         big Allow button each, every step deep-links to the exact
+         system screen. Steps 1 + 2 are required; step 3 is a strong
+         recommendation; step 4 is optional and dismissible. v1.4:
+         once setup is complete it NEVER comes back as a full wizard —
+         a sleeping watcher gets the slim "asleep" banner below. -->
     <string name="wizard_title">Quick setup — tap Allow for each step</string>
 
-    <string name="step1_title">Step 1 of 3 · Accessibility (the button engine)</string>
+    <string name="step1_title">Step 1 of 4 · Accessibility (the button engine)</string>
     <string name="step1_text">This lets StatusSaver put its green button inside WhatsApp. Tap Allow, then in the list tap \"StatusSaver smart button\", switch it ON, and come back here. It only notices which app is open — it cannot read your messages or anything on screen.</string>
-    <string name="step2_title">Step 2 of 3 · File access</string>
+    <string name="step2_title">Step 2 of 4 · File access</string>
     <string name="step2_text">WhatsApp keeps the statuses you view in a hidden folder. Tap Allow and switch \"Allow access to manage all files\" ON, so StatusSaver can save the status you\'re watching. It reads only WhatsApp\'s status folders — nothing else.</string>
-    <string name="step3_title">Step 3 of 3 · Battery (recommended)</string>
+    <string name="step3_title">Step 3 of 4 · Battery (recommended)</string>
     <string name="step3_text">Some phones quietly switch background apps off — that is what made the button disappear before. Tap Allow and choose \"Allow\" so the button stays alive.</string>
+    <string name="step4_title">Step 4 of 4 · Autostart (optional)</string>
+    <string name="step4_text">Some phones hide one more switch — \"Autostart\" — that decides whether StatusSaver may wake up on its own after a restart, without you opening it first. If your phone has it, turn it ON for StatusSaver. No such switch on your phone? Just tap Done below — you won\'t be asked again.</string>
     <string name="btn_allow">Allow</string>
+    <string name="btn_autostart">Open autostart settings</string>
+    <string name="btn_skip_step">Done / Skip</string>
+    <string name="step4_dismissed">OK — you can still change Autostart later in your phone\'s app settings</string>
 
     <string name="done_accessibility">✓ Accessibility is on</string>
     <string name="done_files">✓ File access is on</string>
     <string name="done_battery">✓ Battery is OK</string>
     <string name="all_set">You\'re all set ✓ — open WhatsApp and look for the green button.</string>
     <string name="setup_first">Finish the setup steps first ☝</string>
+
+    <!-- v1.4: the returning-user banner (replaces the wizard when a
+         sleeping watcher is the only problem). -->
+    <string name="banner_asleep_title">Button is asleep</string>
+    <string name="banner_asleep_text">Your phone put the button\'s engine to sleep, so there\'s no button in WhatsApp right now. Tap Wake it, then switch \"StatusSaver smart button\" OFF and back ON (even if it already shows ON — that\'s what wakes it). That\'s the whole fix — no full setup again.</string>
+    <string name="btn_wake">Wake it</string>
 
     <string name="accessibility_label">StatusSaver smart button</string>
     <string name="accessibility_desc">Shows the StatusSaver download button while WhatsApp is open, so you can save the status you are viewing in one tap. It detects which app window is open only — it does not read screen content.</string>
@@ -44,7 +58,7 @@
     <string name="autosave_on">Auto-save ON — statuses you view will save themselves</string>
     <string name="autosave_off">Auto-save OFF</string>
 
-    <string name="diag_title">Diagnostics (v1.3)</string>
+    <string name="diag_title">Diagnostics (v1.4.1)</string>
     <string name="btn_copy_diagnostics">Copy diagnostics</string>
     <string name="diagnostics_copied">Diagnostics copied — paste it anywhere to share</string>
 
@@ -66,6 +80,7 @@
     <string name="delete_failed">Couldn\'t delete that one</string>
 
     <string name="saved_gallery">Saved to gallery ✓</string>
+    <string name="autosaved_gallery">Auto-saved ✓</string>
     <string name="save_failed">Save failed — check permissions</string>
     <string name="no_statuses">No statuses found — view one in WhatsApp first</string>
     <string name="saved_which_file">Saved \"%1$s\" (from %2$d min ago) ✓</string>
