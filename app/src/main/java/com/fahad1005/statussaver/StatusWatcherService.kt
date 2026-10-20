@@ -229,10 +229,15 @@ class StatusWatcherService : AccessibilityService() {
         // the button starts hidden and the next real event decides.
         try {
             val last = Prefs.lastScreen(this)
-            val fresh = last != null &&
+            if (last != null &&
                 System.currentTimeMillis() - last.timeMs < FRESH_MS
-            whatsappOnScreen = fresh && last!!.pkg in WHATSAPP_PACKAGES
-            statusOnScreen = fresh && last.matched
+            ) {
+                whatsappOnScreen = last.pkg in WHATSAPP_PACKAGES
+                statusOnScreen = last.matched
+            } else {
+                whatsappOnScreen = false
+                statusOnScreen = false
+            }
         } catch (e: Exception) {
             Log.e(TAG, "Could not re-read persisted screen record", e)
             whatsappOnScreen = false
