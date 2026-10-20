@@ -1,6 +1,113 @@
-# StatusSaver — build notes (v1, 2026-10-19; v1.1 update 2026-10-20)
+# StatusSaver — build notes (v1, 2026-10-19; v1.1 & v1.2 updates 2026-10-20)
 
 Engineering log for the v1 build.
+
+## v1.2 (2026-10-20) — diagnostic release: "button never appears" on a vivo phone
+
+Phone test of v1.1 on a vivo (Funtouch OS): in-app grid, saving and ads
+all worked; Accessibility showed "On", high-background-battery was
+allowed, overlay had worked since v1, in-app toggle was ON — yet the
+floating button NEVER appeared in WhatsApp's status view. Four suspects
+were investigated in the v1.1 code before changing anything:
+
+### Suspect check (evidence, not guesses)
+
+1. **Watcher in a separate process → static reference null? RULED OUT.**
+   Read `AndroidManifest.xml` line by line: neither
+   `StatusWatcherService` nor `FloatingService` declares
+   `android:process` (nor does any other component). Both services run
+   in the app's default process, so the v1.1 same-process static
+   instance design is valid in principle — the show/hide calls were
+   NOT silently no-ops for this reason. No manifest change needed.
+2. **Watcher shows "On" but isn't actually bound (vivo quirk)? CANNOT
+   be ruled out from outside — v1.1 kept no evidence.** v1.1 had no
+   record of whether `onServiceConnected` ever ran, or whether the
+   service was later unbound by Funtouch's battery manager (which can
+   leave the Settings list saying "On"). → v1.2 adds a
+   `watcherConnected` flag set in `onServiceConnected` and cleared in
+   `onUnbind` (new override — v1.1 only cleared in `onDestroy`, which
+   Android is not obliged to call on unbind) and `onDestroy`, displayed
+   on the Diagnostics card separately from the Settings-list check.
+3. **WhatsApp class-name mismatch? PLAUSIBLE — v1.1's matcher was
+   narrow, and it kept no evidence either.** v1.1 accepted only
+   `StatusPlayback` / `status.playback` / `StatusPlayer` (plus a
+   status+playback fallback). If his WhatsApp build names the viewer
+   differently (e.g. a view/story/media-style class), every event was
+   a silent NO MATCH. → v1.2 widens the rule (below) AND records the
+   last seen class name so one screenshot ends the question forever.
+4. **FloatingService not running / visibility lost on restart?
+   CONTRIBUTING RACE FOUND in v1.1.** The button was created `GONE`,
+   and visibility was only ever flipped by a watcher *change* event.
+   If the process was killed (Funtouch!) and Android restarted
+   FloatingService via START_STICKY while the user sat in the status
+   screen, the new button stayed `GONE` — the watcher (also restarted,
+   its `lastShown` dedup reset) would only speak on the NEXT window
+   change, which might never come while the user stares at a status.
+   Same hole in reverse if the watcher reconnected after the service.
+   → v1.2 closes both directions (below).
+
+### What v1.2 changes
+
+- **Diagnostics card (MainActivity).** Five monospace rows refreshed on
+  every `onResume`: Overlay permission (`Settings.canDrawOverlays`),
+  Accessibility switch (`PermissionHelper.isAccessibilityEnabled` —
+  the Settings.Secure list), Watcher CONNECTED/NOT CONNECTED (the new
+  bound-flag — deliberately separate from the switch row), Floating
+  service RUNNING (`FloatingService.isRunning`), and Last seen screen
+  from the persisted record: `pkg / class (MATCH|NO MATCH) · Ns ago`.
+  A **Copy diagnostics** button puts the same values on the clipboard
+  (rows and copy text are built from one `diagnosticsRows()` call, so
+  they cannot disagree).
+- **Persisted watcher record (`Prefs.kt`, new).** The watcher writes
+  EVERY processed `TYPE_WINDOW_STATE_CHANGED` event (post-filter: own
+  package and transient popup/IME windows are skipped, as before) to
+  SharedPreferences: package, class, matched, timestamp. Also stores
+  the user's explicit button on/off choice (set by MainActivity's
+  toggle and by the notification's stop action), which survives
+  process death.
+- **Link hardening (`FloatingService`, `StatusWatcherService`).**
+  `FloatingService.onCreate` + `onStartCommand` call
+  `applyPersistedWatcherState()`: fresh (<30 s) MATCH in the record →
+  restore the button visible; stale/NO MATCH → leave hidden (hiding
+  remains the watcher's job). `StatusWatcherService.onServiceConnected`
+  pushes the persisted state to FloatingService if it is running, so a
+  watcher that (re)connects second still synchronises the service.
+  Deliberately NOT done: starting the FGS from the accessibility
+  service — background FGS starts are restricted on modern Android and
+  would throw; the START_STICKY restart + re-read covers recovery.
+- **Wider matcher (`StatusWatcherService.isStatusPlayback`).**
+  Package ∈ {com.whatsapp, com.whatsapp.w4b}; exclusions first
+  (`textstatus` About-editor, `settings`, `profile`); exact v1.1 names
+  kept; then the widened rule: class contains `status` AND any of
+  `playback`/`player`/`view`/`story`/`media` (case-insensitive).
+- **Universal battery guidance.** NO brand-specific code anywhere —
+  the matcher, diagnostics and services are brand-agnostic. The
+  Accessibility card carries one short universal line (allow
+  background running), and README carries the compact per-brand table
+  (Pixel/Samsung/Xiaomi/Oppo/vivo/Huawei/Transsion), since the
+  setting's name and place differ per brand. This matters beyond vivo:
+  Samsung's "never sleeping apps" and Transsion's Phone Master kill
+  watchers just as dead.
+
+### Files changed in v1.2
+Changed: `app/build.gradle` (versionCode 3 / versionName "1.2"),
+`.../StatusWatcherService.kt`, `.../FloatingService.kt`,
+`.../MainActivity.kt`, `app/src/main/res/layout/activity_main.xml`,
+`app/src/main/res/values/strings.xml`, `README.md`, `BUILD_NOTES.md`,
+`UPDATE_INSTRUCTIONS.md`.
+Added: `.../Prefs.kt`.
+Not changed (verified, no fix needed): `AndroidManifest.xml` — no
+`android:process` anywhere; `accessibility_service_config.xml`.
+
+### What the Diagnostics panel will prove on his phone
+One screenshot after viewing a status for ~5 s distinguishes all four
+suspects: Watcher NOT CONNECTED + switch ON ⇒ suspect 2 (binding/OEM);
+Watcher CONNECTED + Last seen = a WhatsApp class + NO MATCH ⇒ suspect 3
+(and the exact class name is the one-line fix); Last seen MATCH +
+Floating NOT RUNNING ⇒ suspect 4 (service killed — battery row);
+MATCH + RUNNING + button still invisible ⇒ a new, narrower bug in the
+overlay itself. No logcat, no guessing.
+
 
 ## v1.1 (2026-10-20) — fixes from Fahad's real-phone test
 

@@ -36,6 +36,16 @@ import java.util.concurrent.TimeUnit
 //    one exception there crashed the whole process and the button
 //    "disappeared". Every entry point is now guarded and logged, and the
 //    service is START_STICKY so Android restarts it if it is ever killed.
+//
+// v1.2 changes:
+//  - The button is still created hidden, but on create/start the service
+//    now re-reads the watcher's persisted last-screen record (Prefs): if
+//    the user is CURRENTLY watching a status (record says MATCH and is
+//    < 30 s old), the button restores itself visible. In v1.1 a service
+//    restart while the user sat in the status screen left the button
+//    hidden until the next window change — which might never come.
+//  - Explicit stops (notification tap) are recorded in Prefs, so the
+//    user's on/off choice survives process death.
 class FloatingService : Service() {
 
     companion object {
@@ -44,6 +54,10 @@ class FloatingService : Service() {
         private const val TAG = "FloatingService"
         private const val CHANNEL_ID = "statussaver_running"
         private const val NOTIF_ID = 1
+
+        // A persisted watcher record older than this is stale — it must
+        // not resurrect the button on a much later service restart.
+        private const val STATE_FRESH_MS = 30_000L
 
         // Lets the main screen show "Show/Hide floating button" correctly.
         @Volatile
@@ -79,6 +93,9 @@ class FloatingService : Service() {
             startForeground(NOTIF_ID, buildNotification())
             createFloatingButton()
             isRunning = true
+            // v1.2: if we (re)started while the user is mid-status,
+            // restore the button from the watcher's persisted record.
+            applyPersistedWatcherState()
         } catch (e: Exception) {
             // Never let a startup failure kill the process silently.
             Log.e(TAG, "onCreate failed", e)
@@ -91,6 +108,9 @@ class FloatingService : Service() {
         try {
             // Tapping the notification stops the service (and the button).
             if (intent?.action == ACTION_STOP) {
+                // An explicit user stop — remember the choice (v1.2), so
+                // nothing resurrects the button behind the user's back.
+                Prefs.setButtonEnabled(this, false)
                 stopSelf()
                 return START_NOT_STICKY
             }
@@ -99,6 +119,9 @@ class FloatingService : Service() {
             if (isRunning) {
                 startForeground(NOTIF_ID, buildNotification())
                 if (button == null) createFloatingButton()
+                // v1.2: same restore as onCreate, for the case where the
+                // button already existed and only visibility was lost.
+                applyPersistedWatcherState()
             }
         } catch (e: Exception) {
             Log.e(TAG, "onStartCommand failed", e)
@@ -191,6 +214,21 @@ class FloatingService : Service() {
         } catch (e: Exception) {
             Log.e(TAG, "Could not create floating button", e)
             button = null
+        }
+    }
+
+    // v1.2: restore initial visibility from the watcher's persisted
+    // last-screen record. Only ever SHOWS the button (a fresh MATCH);
+    // hiding stays the watcher's job — if the record says NO MATCH or
+    // is stale, the button simply keeps its default hidden state.
+    private fun applyPersistedWatcherState() {
+        try {
+            val last = Prefs.lastScreen(this) ?: return
+            if (!last.matched) return
+            if (System.currentTimeMillis() - last.timeMs > STATE_FRESH_MS) return
+            handler.post { setButtonVisible(true) }
+        } catch (e: Exception) {
+            Log.e(TAG, "Could not apply persisted watcher state", e)
         }
     }
 

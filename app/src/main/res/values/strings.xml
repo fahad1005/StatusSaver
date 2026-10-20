@@ -24,6 +24,7 @@
 
     <string name="card_accessibility_title">4. Accessibility — smart button</string>
     <string name="card_accessibility_text">Lets the button appear ONLY while a WhatsApp status is playing, and stay hidden everywhere else. StatusSaver watches which screen is open — it cannot read your messages or anything on screen. In Settings, open Accessibility → Installed apps → StatusSaver and turn it on.</string>
+    <string name="card_accessibility_battery">Also: allow StatusSaver to run in the background (Battery settings — Unrestricted / never sleeping / autostart, wording differs per phone), or your phone may disconnect the watcher.</string>
     <string name="btn_allow_accessibility">Open Accessibility settings</string>
 
     <string name="accessibility_label">StatusSaver smart button</string>
@@ -33,6 +34,10 @@
     <string name="show_button">Show floating button</string>
     <string name="hide_button">Hide floating button</string>
     <string name="grant_first">Grant the permissions above first</string>
+
+    <string name="diag_title">Diagnostics (v1.2)</string>
+    <string name="btn_copy_diagnostics">Copy diagnostics</string>
+    <string name="diagnostics_copied">Diagnostics copied — paste it anywhere to share</string>
 
     <string name="statuses_header">Your recent statuses</string>
     <string name="empty_statuses">No statuses found yet.\nView a status in WhatsApp, then come back.</string>

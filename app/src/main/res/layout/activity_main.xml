@@ -146,6 +146,15 @@
                     android:text="@string/card_accessibility_text"
                     android:textSize="13sp" />
 
+                <!-- v1.2: universal battery hint (all brands) — the full
+                     per-brand steps live in the README's battery table. -->
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="6dp"
+                    android:text="@string/card_accessibility_battery"
+                    android:textSize="13sp" />
+
                 <Button
                     android:id="@+id/btnGrantAccessibility"
                     android:layout_width="wrap_content"
@@ -161,6 +170,69 @@
                 android:layout_height="wrap_content"
                 android:layout_marginTop="16dp"
                 android:text="@string/show_button" />
+
+            <!-- v1.2 Diagnostics card: one monospace row per link in the
+                 chain (permission → watcher → service → last screen).
+                 Refreshes every time this screen appears. If the button
+                 misbehaves, screenshot this card or tap Copy — it names
+                 the exact WhatsApp screen, no logcat needed. -->
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="8dp"
+                android:orientation="vertical"
+                android:padding="12dp"
+                android:background="@color/white">
+
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="@string/diag_title"
+                    android:textStyle="bold" />
+
+                <TextView
+                    android:id="@+id/diagOverlay"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="4dp"
+                    android:fontFamily="monospace"
+                    android:textSize="12sp" />
+
+                <TextView
+                    android:id="@+id/diagAccessibility"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:fontFamily="monospace"
+                    android:textSize="12sp" />
+
+                <TextView
+                    android:id="@+id/diagWatcher"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:fontFamily="monospace"
+                    android:textSize="12sp" />
+
+                <TextView
+                    android:id="@+id/diagFloating"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:fontFamily="monospace"
+                    android:textSize="12sp" />
+
+                <TextView
+                    android:id="@+id/diagLastScreen"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:fontFamily="monospace"
+                    android:textSize="12sp" />
+
+                <Button
+                    android:id="@+id/btnCopyDiagnostics"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="8dp"
+                    android:text="@string/btn_copy_diagnostics" />
+            </LinearLayout>
 
             <TextView
                 android:layout_width="wrap_content"

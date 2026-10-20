@@ -1,10 +1,41 @@
-# StatusSaver — v1.1
+# StatusSaver — v1.2
 
 **The status downloader you never have to leave WhatsApp for.**
 A small floating **download button** appears over WhatsApp **only while you
 are viewing a status**. One tap — it's saved to your gallery. When you leave
 the status, the button disappears. No switching apps, no button floating
 over your other apps.
+
+## What's new in v1.2 (diagnostic release)
+
+On one phone (a vivo), v1.1's button never appeared even with every switch
+On. v1.2 replaces guessing with proof — and hardens the weak points the
+investigation found, on **every** Android brand (nothing in v1.2 is
+brand-specific):
+
+- **Diagnostics card on the home screen.** Five live readouts: overlay
+  permission, accessibility switch, watcher **CONNECTED / NOT CONNECTED**
+  (a different fact from the Settings toggle — some phones show the
+  service "On" while it is not actually bound), floating service
+  running, and the **last screen the watcher saw** with the detector's
+  **MATCH / NO MATCH** verdict and how long ago. A **Copy diagnostics**
+  button copies the whole panel to the clipboard.
+- **Wider status detector.** v1.1 accepted only WhatsApp's exact
+  status-player class names. WhatsApp renames screens between versions;
+  v1.2 also matches any WhatsApp window whose class name contains
+  "status" plus playback/player/view/story/media — while still
+  excluding the About text-status editor and settings/profile screens.
+- **Hardened watcher↔button link.** The watcher now records every
+  window change in local storage, and the button service re-reads that
+  record when it (re)starts: if you are mid-status, the button restores
+  itself instead of waiting for a window change that may never come.
+  The watcher pushes its state to the service the moment it connects,
+  too — the ordering races are covered from both sides.
+- **Battery guidance for all phones.** Aggressive battery managers are
+  the #1 cause of "the watcher disconnected". The app now says so in
+  the Accessibility card, and the per-brand table is in
+  [Keep the watcher alive — battery settings per phone brand](#keep-the-watcher-alive--battery-settings-per-phone-brand)
+  below.
 
 ## What's new in v1.1 (from real-phone testing of v1)
 
@@ -27,9 +58,10 @@ over your other apps.
 
 | File | What it does |
 |---|---|
-| `app/src/main/java/.../MainActivity.kt` | Home screen: 4 permission cards, floating-button toggle, status grid, ad banner |
-| `app/src/main/java/.../FloatingService.kt` | The floating button service: shows/hides the button on command, tap = save newest status |
-| `app/src/main/java/.../StatusWatcherService.kt` | Accessibility watcher: shows the button only while a WhatsApp status is playing |
+| `app/src/main/java/.../MainActivity.kt` | Home screen: 4 permission cards, floating-button toggle, Diagnostics card (v1.2), status grid, ad banner |
+| `app/src/main/java/.../FloatingService.kt` | The floating button service: shows/hides the button on command, tap = save newest status; on (re)start it restores visibility from the watcher's persisted record |
+| `app/src/main/java/.../StatusWatcherService.kt` | Accessibility watcher: shows the button only while a WhatsApp status is playing; records every window it sees for the Diagnostics card |
+| `app/src/main/java/.../Prefs.kt` | Tiny local notebook (SharedPreferences): your button on/off choice + the watcher's last-seen screen record |
 | `app/src/main/java/.../StatusScanner.kt` | Finds WhatsApp's hidden `.Statuses` folders, lists statuses newest-first |
 | `app/src/main/java/.../SaveHelper.kt` | Copies a status into your gallery: images → `Pictures/StatusSaver`, videos → `Movies/StatusSaver`, verified before reporting success |
 | `app/src/main/java/.../PermissionHelper.kt` | The 4 permission screens: overlay → file access → notifications → accessibility |
@@ -39,7 +71,7 @@ over your other apps.
 | `.github/workflows/build.yml` | **CI/CD**: every push to `main` auto-builds an APK you can download |
 | `PRIVACY_POLICY.md` | Required for the Play Store: we collect nothing |
 | `STORE_LISTING.md` | App name, description, screenshot plan, localization notes |
-| `UPDATE_INSTRUCTIONS.md` | Step-by-step: how to upload the v1.1 changed files to GitHub |
+| `UPDATE_INSTRUCTIONS.md` | Step-by-step: how to upload the v1.2 changed files to GitHub and test them |
 
 ## How to get these files into YOUR GitHub repo (5 min)
 
@@ -129,7 +161,42 @@ Accessibility → **Installed apps** → **StatusSaver** → turn it ON (Android
 shows a warning screen first; that's normal). Then view a WhatsApp status:
 the green button should appear at the bottom-right, and disappear when
 you leave the status. Tap it → check the gallery (photos in
-`Pictures/StatusSaver`, videos in `Movies/StatusSaver`).
+`Pictures/StatusSaver`, videos in `Movies/StatusSaver`). If the button
+misbehaves, check the **Diagnostics card** on the home screen (see
+"Reading the Diagnostics card" below) and do your brand's row in the
+battery table above it.
+
+## Keep the watcher alive — battery settings per phone brand
+
+The Accessibility watcher and the floating-button service must be allowed
+to run in the **background**. Many phones ship with aggressive battery
+managers that disconnect them — the Settings switch still says "On",
+but nothing works. This is the most common cause of "the button never
+appears", on every brand. Find your brand and do its row once:
+
+| Phone brand | What to allow |
+|---|---|
+| **Stock Android / Google Pixel** | Settings → Apps → StatusSaver → Battery → **Unrestricted** |
+| **Samsung** | Settings → Battery → Background usage limits → **Never sleeping apps** → add StatusSaver |
+| **Xiaomi / Redmi / Poco** | Open StatusSaver's App info → **Autostart ON**; and Battery saver → **No restrictions** |
+| **Oppo / Realme / OnePlus** | App info → Battery → allow **Auto-launch** and **background activity** |
+| **vivo / iQOO** | Settings → Battery → **High background battery usage** → StatusSaver **ON** |
+| **Huawei** | Settings → Battery → App launch → StatusSaver → **Manage manually**, turn all three toggles ON |
+| **Infinix / Tecno / Itel (Transsion)** | Phone Master (or Battery settings) → allow StatusSaver **background running + autostart** |
+
+The Diagnostics card tells you if this is your problem: if **Watcher**
+ flips to **NOT CONNECTED** after the phone sits idle, the battery
+manager disconnected it — redo your brand's row above.
+
+## Reading the Diagnostics card (v1.2)
+
+| Row | Healthy | If not |
+|---|---|---|
+| Overlay permission | ON | Grant card 1 (Display over other apps) |
+| Accessibility switch | ON (in Settings) | Settings → Accessibility → Installed apps → StatusSaver → ON |
+| Watcher | CONNECTED | Switch says On but the service isn't bound — toggle it Off/On, and check the battery table above |
+| Floating service | RUNNING | Tap "Show floating button" on the home screen |
+| Last seen screen | `com.whatsapp / …Status… (MATCH)` from seconds ago after viewing a status | **NO MATCH** = the row names the exact screen your WhatsApp version uses — that name is the fix (it goes into the detector) |
 
 ## How it works (the 30-second version)
 
