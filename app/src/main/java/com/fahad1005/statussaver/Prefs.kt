@@ -13,9 +13,9 @@ import android.content.Context
 //    the engine can never silently disagree the way they did in v1.2.
 // 2) Remember the LAST foreground screen the accessibility watcher saw
 //    (package + class name + did the status detector match + when).
-//    This is the evidence the Diagnostics card on the home screen shows,
-//    and the watcher re-reads it in onServiceConnected so a restart can
-//    restore the correct button visibility instead of guessing.
+//    This is the evidence the Diagnostics card on the home screen
+//    shows. (Until v1.5 the watcher also restored it on reconnect;
+//    v1.6 keeps it as evidence only — live state is never replayed.)
 // 3) v1.3: remember the LAST SAVE ATTEMPT (when, file name, size,
 //    saved/failed + why). Save questions ("it said saved but it's not
 //    in my gallery") become answerable from one Diagnostics screenshot.
@@ -24,12 +24,14 @@ import android.content.Context
 //    auto-save uses as its duplicate guard — automatic saves update it
 //    too (via SaveHelper), and so do manual ones, so auto-save never
 //    re-saves a file the user already grabbed by hand.
-// 5) v1.4: whether the one-time setup has EVER been completed (the
-//    wizard's two required steps granted at least once). Once true,
-//    the wizard must never present itself as a fresh setup again — a
-//    sleeping watcher gets ONE slim "Button is asleep — Wake it"
-//    banner instead. Also: whether the user dismissed the optional
-//    autostart step (step 4), so it never nags.
+// 5) v1.4: whether the one-time setup has EVER been completed. Once
+//    true, the wizard must never present itself as a fresh setup
+//    again — a sleeping watcher gets ONE slim "Button is asleep —
+//    Wake it" banner instead. Also: whether the user dismissed the
+//    optional autostart step, so it never nags. v1.6 redefines
+//    "setup complete" as the CORE setup (file access) — the app is
+//    fully useful with that alone; the button power-up has its own
+//    skip flag (item 7).
 // 6) v1.5: the SET of everything ever saved (identity = file name +
 //    byte size), capped at the most recent 300. SaveHelper consults
 //    it before copying — from ANY entry point — so the same status
@@ -37,6 +39,11 @@ import android.content.Context
 //    had a duplicate guard, and it covered just the single most
 //    recent file; the filmed v1.4.1 test saved the same .jpg twice
 //    via manual taps, eleven minutes apart.)
+// 7) v1.6: whether the user tapped "Skip for now" on the optional
+//    button power-up (the accessibility section of the wizard).
+//    Once true, the power-up section stays hidden and never nags;
+//    tapping "Show floating button" on the home screen brings it
+//    back (MainActivity clears this flag then).
 //
 // Everything here is plain local storage: nothing leaves the phone.
 object Prefs {
@@ -58,6 +65,7 @@ object Prefs {
     private const val KEY_LAST_SAVED_LEN = "last_saved_len"
     private const val KEY_SETUP_COMPLETE = "setup_complete"
     private const val KEY_STEP4_DISMISSED = "step4_dismissed"
+    private const val KEY_POWERUP_SKIPPED = "powerup_skipped"
     private const val KEY_SESSION_SNAPSHOT = "session_snapshot"
     private const val KEY_SESSION_SNAPSHOT_TIME = "session_snapshot_time"
     private const val KEY_SAVED_IDS = "saved_ids"
@@ -259,16 +267,17 @@ object Prefs {
         return out
     }
 
-    // ---- Setup progress (v1.4) ----
+    // ---- Setup progress (v1.4; core redefined in v1.6) ----
 
-    // TRUE once the wizard's required steps (accessibility connected +
-    // file access) have been observed done at least once. MainActivity
-    // sets it the first time refreshWizard sees setup complete; from
-    // then on the wizard NEVER re-presents as a fresh setup — if the
-    // watcher later falls asleep (OEM battery managers disconnect it
-    // while the Settings switch still says On), the home screen shows
-    // a single "Button is asleep — Wake it" banner instead of making
-    // the user feel they must redo the whole setup.
+    // TRUE once the CORE setup (file access — all the status grid
+    // needs) has been observed done at least once. MainActivity sets
+    // it the first time refreshWizard sees file access granted; it
+    // gates the "Button is asleep" banner, so a first-run user
+    // mid-setup never sees a banner meant for returning users. (In
+    // v1.4–v1.5 this latch required accessibility + files; the
+    // button is an optional power-up since v1.6, so it no longer
+    // belongs in the CORE latch. A latch already set by an older
+    // version stays valid — those users have file access too.)
     fun setSetupComplete(context: Context, complete: Boolean) {
         prefs(context).edit().putBoolean(KEY_SETUP_COMPLETE, complete).apply()
     }
@@ -276,14 +285,30 @@ object Prefs {
     fun isSetupComplete(context: Context): Boolean =
         prefs(context).getBoolean(KEY_SETUP_COMPLETE, false)
 
-    // The optional autostart step (wizard step 4) is advisory only.
-    // "Done / Skip" on it lands here so it never shows again.
+    // The optional autostart step is advisory only. "Done / Skip" on
+    // it lands here so it never shows again.
     fun setWizardStep4Dismissed(context: Context, dismissed: Boolean) {
         prefs(context).edit().putBoolean(KEY_STEP4_DISMISSED, dismissed).apply()
     }
 
     fun isWizardStep4Dismissed(context: Context): Boolean =
         prefs(context).getBoolean(KEY_STEP4_DISMISSED, false)
+
+    // ---- Button power-up skip (v1.6) ----
+
+    // TRUE once the user taps "Skip for now" on the wizard's power-up
+    // section (accessibility + battery + autostart — everything that
+    // exists only for the floating button). While TRUE, and the
+    // power-up not actually granted, MainActivity hides the whole
+    // section: skipping is a complete answer, not a snooze. Tapping
+    // "Show floating button" on the home screen clears it (the user
+    // is asking for the button — bring its setup back).
+    fun setPowerUpSkipped(context: Context, skipped: Boolean) {
+        prefs(context).edit().putBoolean(KEY_POWERUP_SKIPPED, skipped).apply()
+    }
+
+    fun isPowerUpSkipped(context: Context): Boolean =
+        prefs(context).getBoolean(KEY_POWERUP_SKIPPED, false)
 
     // Null until the first save attempt has happened.
     fun lastSaveAttempt(context: Context): LastSave? {

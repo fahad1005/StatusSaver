@@ -1,9 +1,8 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!--
-  Main screen: one-time Allow wizard (4 steps; step 4 optional) →
-  floating-button toggle → auto-save switch → Diagnostics card → tabs
-  (Recent | My Saved) + grid → banner ad. All ids are used by
-  MainActivity.kt.
+  Main screen: one-time Allow wizard → floating-button toggle →
+  auto-save switch → Diagnostics card → tabs (Recent | My Saved) +
+  grid → banner ad. All ids are used by MainActivity.kt.
   v1.3 final spec: the old permission cards became the wizard; the
   overlay and notification cards are gone for good — they belonged to
   the retired FloatingService; the accessibility watcher owns the
@@ -12,6 +11,12 @@
   sleep get ONE banner + Wake button, never the wizard again) and the
   optional stepAutostart card live inside wizardContainer; the
   Diagnostics card gains an Auto-save row.
+  v1.6: the wizard is FRONT-DOOR ordered — Step 1 is File access
+  (the core; the grid needs nothing else). The Accessibility,
+  Battery and Autostart blocks form the OPTIONAL Power-up group,
+  introduced by powerupTitle/powerupText/btnSkipPowerup;
+  MainActivity shows/hides that group as a unit (a persisted Skip
+  hides it for good; the button toggle brings it back).
 -->
 <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:ads="http://schemas.android.com/apk/res-auto"
@@ -105,44 +110,8 @@
                         android:text="@string/btn_wake" />
                 </LinearLayout>
 
-                <!-- Step 1: Accessibility -->
-                <LinearLayout
-                    android:id="@+id/stepAccessibility"
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:layout_marginTop="10dp"
-                    android:orientation="vertical">
-
-                    <TextView
-                        android:layout_width="wrap_content"
-                        android:layout_height="wrap_content"
-                        android:text="@string/step1_title"
-                        android:textStyle="bold" />
-
-                    <TextView
-                        android:layout_width="wrap_content"
-                        android:layout_height="wrap_content"
-                        android:text="@string/step1_text"
-                        android:textSize="13sp" />
-
-                    <Button
-                        android:id="@+id/btnStepAccessibility"
-                        android:layout_width="match_parent"
-                        android:layout_height="wrap_content"
-                        android:layout_marginTop="8dp"
-                        android:text="@string/btn_allow" />
-                </LinearLayout>
-
-                <TextView
-                    android:id="@+id/stepAccessibilityDone"
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:layout_marginTop="10dp"
-                    android:text="@string/done_accessibility"
-                    android:textSize="14sp"
-                    android:visibility="gone" />
-
-                <!-- Step 2: File access -->
+                <!-- Step 1: File access (v1.6 — the CORE step; the
+                     grid needs nothing else) -->
                 <LinearLayout
                     android:id="@+id/stepFiles"
                     android:layout_width="match_parent"
@@ -179,7 +148,73 @@
                     android:textSize="14sp"
                     android:visibility="gone" />
 
-                <!-- Step 3: Battery (recommended, not a hard gate) -->
+                <!-- ============ Power-up group (v1.6, OPTIONAL) ============
+                     Heading + intro + Skip, then the Accessibility,
+                     Battery and Autostart blocks. The whole group is
+                     shown/hidden as a unit by MainActivity (a
+                     persisted Skip hides it; the button toggle brings
+                     it back). Everything in it exists ONLY for the
+                     floating button. -->
+                <TextView
+                    android:id="@+id/powerupTitle"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="16dp"
+                    android:text="@string/powerup_title"
+                    android:textStyle="bold" />
+
+                <TextView
+                    android:id="@+id/powerupText"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="@string/powerup_text"
+                    android:textSize="13sp" />
+
+                <Button
+                    android:id="@+id/btnSkipPowerup"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="8dp"
+                    android:text="@string/btn_skip_powerup" />
+
+                <!-- Power-up: Accessibility -->
+                <LinearLayout
+                    android:id="@+id/stepAccessibility"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="10dp"
+                    android:orientation="vertical">
+
+                    <TextView
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text="@string/step1_title"
+                        android:textStyle="bold" />
+
+                    <TextView
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text="@string/step1_text"
+                        android:textSize="13sp" />
+
+                    <Button
+                        android:id="@+id/btnStepAccessibility"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="8dp"
+                        android:text="@string/btn_allow" />
+                </LinearLayout>
+
+                <TextView
+                    android:id="@+id/stepAccessibilityDone"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="10dp"
+                    android:text="@string/done_accessibility"
+                    android:textSize="14sp"
+                    android:visibility="gone" />
+
+                <!-- Power-up: Battery (recommended, not a hard gate) -->
                 <LinearLayout
                     android:id="@+id/stepBattery"
                     android:layout_width="match_parent"
@@ -216,11 +251,13 @@
                     android:textSize="14sp"
                     android:visibility="gone" />
 
-                <!-- Step 4: Autostart (v1.4, OPTIONAL — never a gate.
-                     Shown until the user taps Done/Skip; MainActivity
-                     toggles its visibility from Prefs. No "done" row:
-                     there is no reliable done-check for a settings
-                     switch in another app.) -->
+                <!-- Power-up: Autostart (v1.4, OPTIONAL — never a
+                     gate. Shown until the user taps Done/Skip;
+                     MainActivity toggles its visibility from Prefs.
+                     Since v1.6 it also hides with the rest of the
+                     power-up group when the power-up is skipped.
+                     No "done" row: there is no reliable done-check
+                     for a settings switch in another app.) -->
                 <LinearLayout
                     android:id="@+id/stepAutostart"
                     android:layout_width="match_parent"

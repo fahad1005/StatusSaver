@@ -1,6 +1,187 @@
-# StatusSaver — build notes (v1, 2026-10-19; v1.1–v1.5 updates 2026-10-20)
+# StatusSaver — build notes (v1, 2026-10-19; v1.1–v1.6 updates 2026-10-20)
 
 Engineering log for the v1 build.
+
+## v1.6 (2026-10-20) — the button lives only in the viewer; the front door comes first
+
+Built on the v1.5 disk state. Two changes, both Fahad's calls
+after the v1.5 field test — OPTION 1 for the button, and the
+front-door reorder he benchmarked against the category leader
+("other app install in very easy method just two clicks").
+Everything else — SaveHelper, dedupe, session targeting,
+stability wait, one album, icon, BootReceiver — is untouched;
+their code is byte-identical to v1.5.
+
+### Field evidence (v1.5 test)
+- **Real progress, on camera and in Diagnostics:** a video saved
+  (`5716ae….mp4` · 1.74 MB · SAVED), the dedupe guard fired in
+  the wild ("Already saved ✓"), watcher CONNECTED / ALIVE.
+- **But the button still misbehaved socially:** it sat on the
+  chat list and inside chats, where a tap has no status behind
+  it — v1.5's gate contained the damage, but from the user's
+  seat the app still "does things" in places it has no business
+  being. And in the film the button was present on Chats yet
+  missing in the Updates tab — visibility keyed to the WhatsApp
+  package keeps every WhatsApp surface in play, including ones
+  where foreign window events (the vivo recorder overlay again)
+  can blink it.
+- **Onboarding order was upside down.** The wizard led with
+  Accessibility — the heaviest permission — when the app's core
+  (the status grid) needs only file access. The category leader's
+  whole setup is two clicks because the grid IS the product; our
+  button is a power-up and was priced like an entrance fee.
+
+### CHANGE 1 — viewer-only button (`StatusWatcherService`)
+Visibility is now SESSION-level:
+`visible ⇔ Prefs.buttonEnabled && inViewerSession`.
+
+- `inViewerSession` opens on a LIVE false→true matched
+  transition — the existing `isStatusPlayback` matcher decides,
+  the same transition that snapshots the session and arms
+  auto-save.
+- It closes via ONE debounced session end: any non-matched event
+  while a session is open schedules the end after
+  `HIDE_GRACE_MS` (1200 ms, unchanged); a matched event cancels
+  it. So a known non-viewer WhatsApp screen (chat list, a chat,
+  Updates), another app in the foreground, or a foreign overlay
+  all end the session the same way — after 1200 ms of CONTINUOUS
+  non-viewer foreground. Swipe gaps and split-second overlays
+  never end it. When the session ends, the button detaches at
+  once (the grace was already spent waiting out the evidence —
+  there is no second hide timer; `scheduleHide`/`pendingHide`
+  are gone).
+- Reconnect discipline extended: `inViewerSession` starts FALSE
+  at every bind/unbind/destroy, and `onServiceConnected` no
+  longer restores the persisted last-screen record into live
+  state at all (it is Diagnostics evidence only). Replayed state
+  must neither resurrect the button nor arm an auto-save — and
+  seeding `statusOnScreen` from it would have swallowed the
+  first live viewer entry (no transition → no snapshot, no
+  session). If the watcher is rebound while the user sits in a
+  status, the button returns on the next live viewer entry (a
+  swipe, a re-open) — witnessed by this binding, or not at all.
+  `whatsappOnScreen` went away with the package-level rule; it
+  had no other consumer.
+- Tap: with no button outside the viewer, the v1.5 stint gate
+  is STRUCTURALLY redundant and is removed. `onButtonTap` saves
+  via `resolveSessionTarget` exactly as before when a session is
+  active; the defensive no-session case (a tap racing the
+  session-end detach) answers the existing "Open a status first"
+  and saves nothing. The single reusable toast and all
+  `SaveResult` handling are unchanged. Ghost taps are now
+  impossible in the strong sense: outside a status there is no
+  window, no view, nothing to tap.
+- Auto-save: logic untouched — it already keyed off matched
+  transitions (its session guard and `statusOnScreen` handling
+  are as v1.5).
+- Diagnostics: no row changes. "Button visible now" still reads
+  the actual overlay state; "Last seen screen" still shows the
+  matcher's verdict and exact class per event.
+
+### CHANGE 2 — front-door onboarding (`MainActivity`, layout, strings, `Prefs`)
+- **Step 1 is now File access** ("Step 1 · File access (all the
+  app needs)"). With it granted, the grid + My Saved work fully
+  — the two-click front door. The layout physically moved the
+  files block above the accessibility block; string KEYS kept
+  their v1.3 names (`step1_*` = accessibility, `step2_*` =
+  files) so no reference churn — only words and order changed.
+- **The Power-up group** — heading "Power-up (optional): the
+  magic button", an intro that says plainly what it adds and
+  that the app works fully without it, and a "Skip for now"
+  button — wraps the Accessibility, Battery and Autostart
+  blocks (all three exist only for the button). Battery and
+  Autostart copy lost their step numbers and now say they serve
+  the button.
+- **Skip persists** (`Prefs.powerUpSkipped`, the one minimal
+  extension of the latch machinery). Presentation rules in
+  `refreshWizard`: the group shows while core setup is
+  incomplete, or while actively being set up (`powerUpExpanded`,
+  activity-scoped, set by the button toggle), and hides — for
+  good — when the power-up is granted, when Skip is tapped, or
+  once the CORE latch has set and the user never engaged with
+  it. The toggle is the way back from every put-away state:
+  tapping "Show floating button" with the power-up incomplete
+  clears the skip, expands the group and scrolls to it.
+- **Core latch redefined:** `Prefs.setupComplete` now latches
+  when FILE ACCESS is first observed done (v1.4–v1.5 required
+  accessibility too). It still gates the "Button is asleep"
+  banner (with the same switch-on-but-not-connected condition,
+  plus: not while the power-up group is expanded). A latch set
+  by an older version remains valid — those users necessarily
+  had file access. Revoked files still surface the single
+  repair step; upgraders land on the same settled "You're all
+  set ✓" state as v1.5.
+- **All-set wording follows the path taken:** the button
+  wording when the power-up was granted, a grid wording when it
+  wasn't. Permission mechanics are untouched — every check,
+  deep-link and the toggle's requirements (files + power-up
+  done, watcher connected) are the v1.5 ones.
+- The accessibility service's own description string (what
+  Android shows in Settings) now says the button appears "while
+  you view a status in WhatsApp" — the v1.3 wording ("while
+  WhatsApp is open") would have been a lie under OPTION 1.
+
+### Honest limits
+- **Viewer detection still rides on the class matcher.** If a
+  future WhatsApp renames its status viewer past the matcher,
+  the button simply won't appear (and auto-save won't fire) —
+  the grid remains the always-works fallback, and Diagnostics'
+  Last-seen row shows the exact class a fix would need. This is
+  the accepted price of OPTION 1: visibility moved from the
+  package (always right, wrong scope) to the viewer (right
+  scope, matcher-dependent).
+- A watcher rebound mid-status restores nothing; the button
+  returns on the next live viewer entry (see Change 1). One
+  swipe is the price of never resurrecting from replayed state.
+- Backing out of a status leaves the button up for ~1.2 s (the
+  session-end grace) — the same honest trade as the old hide
+  grace, now also covering "left WhatsApp entirely".
+- The power-up's discoverability after the core latch relies on
+  the button toggle — deliberate: the front door stays clean,
+  and asking for the button is the one unambiguous signal of
+  wanting it.
+
+### Files changed in v1.6
+- `StatusWatcherService.kt` — `inViewerSession` + debounced
+  session end replace package-level visibility and the v1.5
+  stint gate; `whatsappOnScreen`, `statusViewedThisStint`,
+  `pendingHide`/`scheduleHide`, the connect-time record restore
+  and `FRESH_MS` removed; comments updated throughout.
+- `MainActivity.kt` — wizard rewritten around core/power-up:
+  files latch, group presentation rules, asleep-banner gating,
+  dual all-set wording, Skip listener, toggle reopens the
+  power-up; `step1Done()` renamed `powerUpDone()` (same check);
+  diagnostics header → v1.6.
+- `Prefs.kt` — `powerUpSkipped` flag + accessors; setup-latch
+  documentation updated to the core definition.
+- `activity_main.xml` — files block moved to Step 1; power-up
+  heading/intro/Skip inserted; block comments updated.
+- `strings.xml` — front-door copy: onboarding sub, wizard
+  title, files = Step 1, power-up heading/intro/Skip/skipped
+  toast, un-numbered battery/autostart titles, `all_set_core`,
+  step references in `accessibility_first`/`watcher_warming`/
+  `grant_files_first`, accessibility service description,
+  `saved_empty`, Diagnostics title → v1.6.
+- `app/build.gradle` — versionCode 8 / versionName "1.6".
+- `BUILD_NOTES.md`, `UPDATE_INSTRUCTIONS.md` — this section and
+  the v1.6 ritual (button-presence checks per screen; grid-only
+  fresh-install path; power-up skip/non-nag checks).
+
+### Residual risks (v1.6)
+- The matcher dependency above is the headline one; the
+  ritual's per-screen button checks are its judge.
+- Session-end depends on window events arriving; a WhatsApp
+  build that fires NO event on backing out of the viewer would
+  leave the session open until the next event anywhere — the
+  next event then ends it after the grace. No field evidence of
+  such a build; noted for completeness.
+- Compilation remains GitHub Actions' verdict (no compiler
+  here); static self-review: zero `!!`, all R.string/R.id/
+  R.drawable/R.layout/R.color references resolve in code and
+  layout, all res XML parses, braces/parens/brackets balance in
+  every edited Kotlin file, and `SaveHelper.kt`,
+  `StatusScanner.kt`, `BootReceiver.kt`, `PermissionHelper.kt`
+  and the manifest are untouched (mtimes predate this pass).
 
 ## v1.5 (2026-10-20) — dedupe everywhere, honest toasts, a tap gate with a memory
 

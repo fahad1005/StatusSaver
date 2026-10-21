@@ -8,23 +8,34 @@
     <string name="banner_ad_unit_id">ca-app-pub-3940256099942544/6300978111</string>
 
     <string name="onboarding_title">Save any WhatsApp status in one tap</string>
-    <string name="onboarding_sub">A few quick taps and you\'re set — the green button then lives inside WhatsApp, ready whenever you are.</string>
+    <string name="onboarding_sub">One quick permission and you\'re saving — everything below works right away. The magic button inside WhatsApp is an optional power-up, whenever you want it.</string>
 
-    <!-- One-time Allow wizard (final spec; step 4 added in v1.4): one
-         big Allow button each, every step deep-links to the exact
-         system screen. Steps 1 + 2 are required; step 3 is a strong
-         recommendation; step 4 is optional and dismissible. v1.4:
-         once setup is complete it NEVER comes back as a full wizard —
-         a sleeping watcher gets the slim "asleep" banner below. -->
-    <string name="wizard_title">Quick setup — tap Allow for each step</string>
+    <!-- One-time Allow wizard. v1.6 FRONT-DOOR order (Fahad's pick
+         after the v1.5 test): Step 1 is FILE ACCESS — the only
+         permission the app itself needs, like the category leader's
+         two-click setup. Everything the floating button needs
+         (Accessibility, Battery, Autostart) moved into the OPTIONAL
+         Power-up section below it, with a Skip that is a complete,
+         persisted answer. Resource keys keep their v1.3 names
+         (step1_* = accessibility, step2_* = files) — only the
+         layout order and the words changed. v1.4: once setup is
+         complete it NEVER comes back as a full wizard — a sleeping
+         watcher gets the slim "asleep" banner below. -->
+    <string name="wizard_title">Quick setup — one step, and you\'re saving</string>
 
-    <string name="step1_title">Step 1 of 4 · Accessibility (the button engine)</string>
+    <string name="step2_title">Step 1 · File access (all the app needs)</string>
+    <string name="step2_text">WhatsApp keeps the statuses you view in a hidden folder. Tap Allow and switch \"Allow access to manage all files\" ON, so StatusSaver can save the status you\'re watching. It reads only WhatsApp\'s status folders — nothing else. With this one step done, the statuses below are yours to save.</string>
+
+    <string name="powerup_title">Power-up (optional): the magic button</string>
+    <string name="powerup_text">Want to save without opening this app? The power-up adds ONE thing: a green button that appears inside WhatsApp while you view a status — tap it, saved. It needs the extra steps below. Not now? Tap Skip — the app works fully without it, and this section stays out of your way.</string>
+    <string name="btn_skip_powerup">Skip for now</string>
+    <string name="powerup_skipped">Power-up skipped — tap \"Show floating button\" below anytime to bring it back</string>
+
+    <string name="step1_title">Accessibility (the button engine)</string>
     <string name="step1_text">This lets StatusSaver put its green button inside WhatsApp. Tap Allow, then in the list tap \"StatusSaver smart button\", switch it ON, and come back here. It only notices which app is open — it cannot read your messages or anything on screen.</string>
-    <string name="step2_title">Step 2 of 4 · File access</string>
-    <string name="step2_text">WhatsApp keeps the statuses you view in a hidden folder. Tap Allow and switch \"Allow access to manage all files\" ON, so StatusSaver can save the status you\'re watching. It reads only WhatsApp\'s status folders — nothing else.</string>
-    <string name="step3_title">Step 3 of 4 · Battery (recommended)</string>
+    <string name="step3_title">Battery (recommended for the button)</string>
     <string name="step3_text">Some phones quietly switch background apps off — that is what made the button disappear before. Tap Allow and choose \"Allow\" so the button stays alive.</string>
-    <string name="step4_title">Step 4 of 4 · Autostart (optional)</string>
+    <string name="step4_title">Autostart (optional)</string>
     <string name="step4_text">Some phones hide one more switch — \"Autostart\" — that decides whether StatusSaver may wake up on its own after a restart, without you opening it first. If your phone has it, turn it ON for StatusSaver. No such switch on your phone? Just tap Done below — you won\'t be asked again.</string>
     <string name="btn_allow">Allow</string>
     <string name="btn_autostart">Open autostart settings</string>
@@ -34,7 +45,8 @@
     <string name="done_accessibility">✓ Accessibility is on</string>
     <string name="done_files">✓ File access is on</string>
     <string name="done_battery">✓ Battery is OK</string>
-    <string name="all_set">You\'re all set ✓ — open WhatsApp and look for the green button.</string>
+    <string name="all_set">You\'re all set ✓ — open WhatsApp, open a status, and the green button is there.</string>
+    <string name="all_set_core">You\'re all set ✓ — your statuses below are ready to save.</string>
     <string name="setup_first">Finish the setup steps first ☝</string>
 
     <!-- v1.4: the returning-user banner (replaces the wizard when a
@@ -44,13 +56,13 @@
     <string name="btn_wake">Wake it</string>
 
     <string name="accessibility_label">StatusSaver smart button</string>
-    <string name="accessibility_desc">Shows the StatusSaver download button while WhatsApp is open, so you can save the status you are viewing in one tap. It detects which app window is open only — it does not read screen content.</string>
+    <string name="accessibility_desc">Shows the StatusSaver download button while you view a status in WhatsApp, so you can save it in one tap. It detects which app window is open only — it does not read screen content.</string>
     <string name="floating_button_desc">Save this status</string>
 
     <string name="show_button">Show floating button</string>
     <string name="hide_button">Hide floating button</string>
-    <string name="accessibility_first">Turn on Accessibility first (Step 1 above) — the watcher IS the button engine</string>
-    <string name="watcher_warming">One moment — the button engine isn\'t connected yet. If this message stays, redo Step 1 above.</string>
+    <string name="accessibility_first">Turn on Accessibility first (in the Power-up section above) — the watcher IS the button engine</string>
+    <string name="watcher_warming">One moment — the button engine isn\'t connected yet. If this message stays, redo the Accessibility step in the Power-up section above.</string>
     <string name="open_status_first">Open a status first, then tap the green button.</string>
 
     <string name="autosave_label">Auto-save every status I view</string>
@@ -58,7 +70,7 @@
     <string name="autosave_on">Auto-save ON — statuses you view will save themselves</string>
     <string name="autosave_off">Auto-save OFF</string>
 
-    <string name="diag_title">Diagnostics (v1.5)</string>
+    <string name="diag_title">Diagnostics (v1.6)</string>
     <string name="btn_copy_diagnostics">Copy diagnostics</string>
     <string name="diagnostics_copied">Diagnostics copied — paste it anywhere to share</string>
 
@@ -67,8 +79,8 @@
     <string name="statuses_header">Your recent statuses</string>
     <string name="saved_header">Your saved statuses</string>
     <string name="empty_statuses">No statuses found yet.\nView a status in WhatsApp, then come back.</string>
-    <string name="saved_empty">Nothing saved yet — open a WhatsApp status and tap the green button.</string>
-    <string name="grant_files_first">Finish Step 2 (file access) above to see your statuses.</string>
+    <string name="saved_empty">Nothing saved yet — save one from Recent statuses, or with the green button inside WhatsApp.</string>
+    <string name="grant_files_first">Finish Step 1 (file access) above to see your statuses.</string>
     <string name="btn_save">Save</string>
     <string name="badge_video">▶ VIDEO</string>
 

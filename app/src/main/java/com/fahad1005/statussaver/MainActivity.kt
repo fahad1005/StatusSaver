@@ -43,22 +43,27 @@ import java.util.Date
 import java.util.Locale
 
 // MainActivity: the app's home screen.
-// 1) A one-time Allow WIZARD (final spec; v1.4 two-audience fix):
-//    steps with one big Allow button each, every button deep-links to
-//    the exact system screen — 1) Accessibility (the button engine),
-//    2) File access, 3) Battery (recommended, not a gate), 4) Autostart
-//    (optional, v1.4 — Done/Skip dismisses it forever). Steps re-check
-//    themselves every time the screen returns; finished steps collapse
-//    to a slim ✓ row, and once steps 1+2 are done the whole wizard
-//    becomes one row: "You're all set ✓". v1.4: setup completion is
-//    LATCHED in Prefs — after that, the wizard never re-presents as a
-//    fresh setup. A sleeping watcher gets one slim "Button is asleep —
-//    Wake it" banner; a genuinely revoked files permission gets its
-//    single repair step; that's all. And none of it ever blocks the
-//    screen: the statuses grid loads immediately, every time.
+// 1) A one-time Allow WIZARD (v1.6 front-door order): Step 1 is FILE
+//    ACCESS — the only permission the app itself needs; with it, the
+//    statuses grid below works fully. Everything the floating button
+//    needs lives in the OPTIONAL Power-up section under it —
+//    Accessibility (the button engine), Battery (recommended),
+//    Autostart (advisory, Done/Skip dismisses it forever) — each with
+//    one big Allow button deep-linking to the exact system screen.
+//    "Skip for now" on the power-up persists in Prefs: the section
+//    never nags again (the button toggle below brings it back).
+//    Steps re-check themselves every time the screen returns;
+//    finished steps collapse to a slim ✓ row, and once everything
+//    presented is resolved the wizard becomes one row: "You're all
+//    set ✓". The core setup latches in Prefs (file access seen done
+//    once) — after that the wizard never re-presents as fresh setup:
+//    a sleeping watcher gets one slim "Button is asleep — Wake it"
+//    banner; a revoked files permission gets its repair step; that's
+//    all. And none of it ever blocks the screen: the statuses grid
+//    loads immediately, every time.
 // 2) A toggle that flips the persisted button on/off choice and nudges
-//    the watcher to apply it. Locked until wizard steps 1+2 are done —
-//    it scrolls to the wizard instead of pretending.
+//    the watcher to apply it. Locked until file access + the power-up
+//    are done — it scrolls to the wizard instead of pretending.
 // 3) An auto-save switch ("Auto-save every status I view", default OFF).
 // 4) A Diagnostics card: live readouts that prove which link in the
 //    chain (watcher → button → last save) is working, plus a Copy
@@ -86,6 +91,21 @@ class MainActivity : AppCompatActivity() {
     private lateinit var stepBattery: LinearLayout
     private lateinit var stepBatteryDone: TextView
     private lateinit var stepAutostart: LinearLayout
+    // Power-up group header (v1.6): heading + intro + Skip. The three
+    // step blocks above (accessibility/battery/autostart) belong to
+    // the group too; refreshWizard shows/hides them as a unit.
+    private lateinit var powerupTitle: TextView
+    private lateinit var powerupText: TextView
+    private lateinit var btnSkipPowerup: Button
+
+    // TRUE while the user is actively setting up the power-up after
+    // asking for the button via the toggle (v1.6). Once the CORE
+    // setup has latched, the power-up group stays out of the way
+    // unless it was granted, skipped-then-reopened this way, or the
+    // core setup is still incomplete. Activity-scoped on purpose: if
+    // the process dies mid-flow, the group simply hides again — the
+    // payoff state (power-up granted) is re-derived live anyway.
+    private var powerUpExpanded = false
 
     private lateinit var btnToggle: Button
     private lateinit var switchAutoSave: SwitchCompat
@@ -181,6 +201,9 @@ class MainActivity : AppCompatActivity() {
         stepBattery = findViewById(R.id.stepBattery)
         stepBatteryDone = findViewById(R.id.stepBatteryDone)
         stepAutostart = findViewById(R.id.stepAutostart)
+        powerupTitle = findViewById(R.id.powerupTitle)
+        powerupText = findViewById(R.id.powerupText)
+        btnSkipPowerup = findViewById(R.id.btnSkipPowerup)
         btnToggle = findViewById(R.id.btnToggle)
         switchAutoSave = findViewById(R.id.switchAutoSave)
         tabRecent = findViewById(R.id.tabRecent)
@@ -215,11 +238,22 @@ class MainActivity : AppCompatActivity() {
             PermissionHelper.requestAutostartSettings(this)
         }
         findViewById<Button>(R.id.btnStepAutostartSkip).setOnClickListener {
-            // Step 4 is advisory: "Done / Skip" is a complete answer.
+            // Autostart is advisory: "Done / Skip" is a complete answer.
             Prefs.setWizardStep4Dismissed(this, true)
             refreshWizard()
             Toast.makeText(
                 this, getString(R.string.step4_dismissed), Toast.LENGTH_SHORT
+            ).show()
+        }
+        btnSkipPowerup.setOnClickListener {
+            // v1.6: skipping the power-up is a complete, PERSISTED
+            // answer — the section hides and never nags again. The
+            // button toggle below is the way back (it clears this).
+            Prefs.setPowerUpSkipped(this, true)
+            powerUpExpanded = false
+            refreshWizard()
+            Toast.makeText(
+                this, getString(R.string.powerup_skipped), Toast.LENGTH_LONG
             ).show()
         }
         findViewById<Button>(R.id.btnWake).setOnClickListener {
@@ -266,92 +300,130 @@ class MainActivity : AppCompatActivity() {
         super.onPause()
     }
 
-    // ---- The Allow wizard (v1.4: two audiences, never confused) ----
-    // Done-checks:
-    //   Step 1: the Settings list says our service is enabled AND the
-    //     watcher is truly CONNECTED (the two can disagree — see the
-    //     Diagnostics notes; the delayed re-check in onResume covers
-    //     the bind lag right after the user flips the switch).
-    //   Step 2: PermissionHelper.hasFileAccess (all-files on 11+,
-    //     legacy storage permission below).
-    //   Step 3: the battery-optimisation exemption. Recommended only —
-    //     it never blocks the toggle or the "all set" state.
-    //   Step 4 (v1.4): autostart. Advisory only, no done-check — the
-    //     user answers it with Done/Skip, persisted in Prefs.
+    // ---- The Allow wizard (v1.6: front door first, power-up optional) ----
+    // Done-checks (mechanics unchanged since v1.3/v1.4):
+    //   CORE — File access: PermissionHelper.hasFileAccess (all-files
+    //     on 11+, legacy storage permission below). ALL the status
+    //     grid needs — the app is fully useful with this alone.
+    //   POWER-UP — Accessibility: the Settings list says our service
+    //     is enabled AND the watcher is truly CONNECTED (the two can
+    //     disagree — see the Diagnostics notes; the delayed re-check
+    //     in onResume covers the bind lag right after the user flips
+    //     the switch). Battery: the optimisation exemption —
+    //     recommended only, never a gate. Autostart: advisory only,
+    //     no done-check — the user answers it with Done/Skip,
+    //     persisted in Prefs.
     //
-    // FIRST-RUN users get the wizard above. The moment steps 1+2 are
-    // both observed done, Prefs.setupComplete latches TRUE — and a
-    // RETURNING user never sees the wizard as a fresh setup again
-    // (v1.4, BUG 1: "every time I have to start and allow it"). What
-    // they get instead:
-    //   - watcher asleep (not connected — an OEM battery manager
-    //     disconnected it while the Settings switch may still say On):
-    //     ONE slim banner, "Button is asleep" + a "Wake it" button
-    //     that deep-links to the Accessibility settings screen;
-    //   - files permission genuinely revoked: that ONE repair step;
-    //   - everything healthy: the single "You're all set ✓" row.
+    // Presentation rules:
+    //   - The CORE step shows its card while file access is missing,
+    //     a slim ✓ row once granted, and hides once the whole wizard
+    //     is resolved.
+    //   - The POWER-UP group (heading + intro + Skip + accessibility
+    //     + battery + autostart) is presented while the core setup is
+    //     still incomplete, or while the user is actively setting it
+    //     up (powerUpExpanded — set by the button toggle), or while
+    //     it stands unanswered AND unskipped before core setup. It
+    //     hides for good when: the power-up is granted (its steps
+    //     collapse and then resolve away), the user taps "Skip for
+    //     now" (persisted in Prefs), or the core setup has latched
+    //     and the user never engaged with it. Skipping is never a
+    //     dead end: the button toggle clears the skip and reopens
+    //     the group.
+    //   - The "Button is asleep" banner keeps its v1.4 meaning — the
+    //     accessibility switch is enabled but the watcher isn't
+    //     connected (an OEM battery manager disconnected it; the
+    //     Settings list can still say On) — gated on the CORE latch
+    //     so a first-run user mid-flow sees steps, not a banner, and
+    //     never shown while the power-up group is expanded (the
+    //     steps themselves are the guide there).
+    //   - Fully resolved (files granted AND power-up granted or
+    //     skipped-or-lathed-away AND nothing asleep) collapses the
+    //     wizard to the single "You're all set ✓" row — the BUTTON
+    //     wording when the power-up was taken, the GRID wording
+    //     when it wasn't.
     // The statuses grid below never waits on any of this — it loads
     // in onResume regardless (Layer-1 is instant, wizard or not).
-    private fun step1Done(): Boolean =
+    private fun powerUpDone(): Boolean =
         PermissionHelper.isAccessibilityEnabled(this) &&
             StatusWatcherService.watcherConnected
 
     private fun refreshWizard() {
         val filesOk = PermissionHelper.hasFileAccess(this)
-        val requiredDone = step1Done() && filesOk
-        if (requiredDone && !Prefs.isSetupComplete(this)) {
+        // CORE latch (v1.6 redefinition — see Prefs): file access
+        // observed done once. In v1.4–v1.5 this latch required the
+        // accessibility step too; the button is optional now, so it
+        // no longer belongs in the core latch. A latch set by an
+        // older version stays valid (those users have files too).
+        if (filesOk && !Prefs.isSetupComplete(this)) {
             Prefs.setSetupComplete(this, true)
         }
-        if (!Prefs.isSetupComplete(this)) {
-            // First-run mode: the full wizard (v1.3 behaviour).
-            asleepBanner.visibility = View.GONE
-            wizardTitle.visibility = if (requiredDone) View.GONE else View.VISIBLE
-            wizardAllSet.visibility = if (requiredDone) View.VISIBLE else View.GONE
+        val coreLatched = Prefs.isSetupComplete(this)
+        val powerOk = powerUpDone()
+        if (powerOk) powerUpExpanded = false
+        val skipped = Prefs.isPowerUpSkipped(this)
+        val asleep = coreLatched &&
+            !powerUpExpanded &&
+            PermissionHelper.isAccessibilityEnabled(this) &&
+            !StatusWatcherService.watcherConnected
+        asleepBanner.visibility = if (asleep) View.VISIBLE else View.GONE
+        // Resolved = nothing left that the wizard is presenting:
+        // files granted, nobody asleep, and the power-up either
+        // granted or put away (skipped, or never engaged before the
+        // core latch — it stays reachable via the button toggle).
+        val powerSettled = powerOk || skipped || coreLatched
+        val resolved = filesOk && powerSettled && !asleep && !powerUpExpanded
+        wizardTitle.visibility = if (resolved) View.GONE else View.VISIBLE
+        wizardAllSet.visibility = if (resolved) View.VISIBLE else View.GONE
+        if (resolved) {
+            wizardAllSet.text = getString(
+                if (powerOk) R.string.all_set else R.string.all_set_core
+            )
+        }
+        // Core step: card while missing, ✓ row once granted, hidden
+        // once resolved (applyStep's collapsed case).
+        applyStep(stepFiles, stepFilesDone, filesOk, resolved)
+        // Power-up group: presented while the core setup is still
+        // open, or while actively being set up — never once put
+        // away, and never as part of a resolved wizard.
+        val groupVisible = !resolved && (powerUpExpanded || !coreLatched) &&
+            !(skipped && !powerUpExpanded)
+        powerupTitle.visibility = if (groupVisible) View.VISIBLE else View.GONE
+        powerupText.visibility = if (groupVisible) View.VISIBLE else View.GONE
+        // Skip is offered only while the power-up is ungranted —
+        // after granting, the steps show their own ✓ rows instead.
+        btnSkipPowerup.visibility =
+            if (groupVisible && !powerOk) View.VISIBLE else View.GONE
+        if (groupVisible) {
             applyStep(
                 stepAccessibility, stepAccessibilityDone,
-                step1Done(), requiredDone
-            )
-            applyStep(
-                stepFiles, stepFilesDone,
-                filesOk, requiredDone
+                powerOk, collapsed = false
             )
             applyStep(
                 stepBattery, stepBatteryDone,
-                PermissionHelper.hasBatteryExemption(this), requiredDone
+                PermissionHelper.hasBatteryExemption(this), collapsed = false
             )
         } else {
-            // Returning-user mode: banner or all-set, plus at most the
-            // single files repair step. Steps 1/3 never re-expand.
-            wizardTitle.visibility = View.GONE
             stepAccessibility.visibility = View.GONE
             stepAccessibilityDone.visibility = View.GONE
             stepBattery.visibility = View.GONE
             stepBatteryDone.visibility = View.GONE
-            val asleep = !StatusWatcherService.watcherConnected
-            asleepBanner.visibility = if (asleep) View.VISIBLE else View.GONE
-            wizardAllSet.visibility =
-                if (!asleep && filesOk) View.VISIBLE else View.GONE
-            if (!filesOk) {
-                stepFiles.visibility = View.VISIBLE
-                stepFilesDone.visibility = View.GONE
-            } else {
-                stepFiles.visibility = View.GONE
-                stepFilesDone.visibility = View.GONE
-            }
         }
-        // Step 4 (optional autostart): lives in the wizard area until
-        // the user answers it with Done/Skip — in both modes, since a
-        // user who finished setup quickly may never have read it.
+        // Autostart (advisory) belongs to the power-up group — it
+        // only matters for the button — and still answers to its
+        // own Done/Skip.
         stepAutostart.visibility =
-            if (Prefs.isWizardStep4Dismissed(this)) View.GONE else View.VISIBLE
+            if (groupVisible && !Prefs.isWizardStep4Dismissed(this)) {
+                View.VISIBLE
+            } else {
+                View.GONE
+            }
     }
 
     // One step's two faces: the full card (title + text + Allow button)
     // while it's missing, a slim "✓ …" row once granted. When the whole
-    // wizard is complete, both faces hide — the "You're all set" row is
-    // the wizard. (First-run mode only: since v1.4, once setup has
-    // completed once, refreshWizard's returning-user mode handles
-    // revocations and sleeping watchers instead — see above.)
+    // wizard is resolved, both faces hide — the "You're all set" row is
+    // the wizard. refreshWizard decides which steps are presented at
+    // all (the power-up group hides as a unit — see above).
     private fun applyStep(block: View, doneRow: View, done: Boolean, collapsed: Boolean) {
         when {
             collapsed -> {
@@ -395,8 +467,11 @@ class MainActivity : AppCompatActivity() {
     // label (intent) and the service's running flag lived in different
     // lifecycles and could disagree forever after a process kill.
     //
-    // Locked until wizard steps 1+2 are done: if the user taps early,
-    // we scroll to the wizard and say so — never a silent no-op. If the
+    // Locked until file access + the power-up are done: if the user
+    // taps early, we scroll to the wizard and say so — never a silent
+    // no-op. v1.6: asking for the button is also the way back from a
+    // skipped or put-away power-up — the tap clears any persisted
+    // Skip and re-expands the section before pointing at it. If the
     // steps are done but the watcher hasn't connected yet (bind lag,
     // or a phone that shows the switch On without binding), we say
     // that honestly too.
@@ -405,11 +480,17 @@ class MainActivity : AppCompatActivity() {
             Prefs.setButtonEnabled(this, false)
             StatusWatcherService.reevaluate()
         } else {
-            if (!step1Done() || !PermissionHelper.hasFileAccess(this)) {
-                if (!PermissionHelper.isAccessibilityEnabled(this)) {
-                    Toast.makeText(
-                        this, getString(R.string.accessibility_first), Toast.LENGTH_SHORT
-                    ).show()
+            if (!powerUpDone() || !PermissionHelper.hasFileAccess(this)) {
+                if (!powerUpDone()) {
+                    Prefs.setPowerUpSkipped(this, false)
+                    powerUpExpanded = true
+                    refreshWizard()
+                    if (!PermissionHelper.isAccessibilityEnabled(this)) {
+                        Toast.makeText(
+                            this, getString(R.string.accessibility_first),
+                            Toast.LENGTH_SHORT
+                        ).show()
+                    }
                 }
                 pointAtWizard()
                 return
@@ -535,7 +616,7 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun copyDiagnostics() {
-        val text = StringBuilder("StatusSaver v1.5 diagnostics\n")
+        val text = StringBuilder("StatusSaver v1.6 diagnostics\n")
         for ((label, value) in diagnosticsRows()) {
             text.append("$label: $value\n")
         }
