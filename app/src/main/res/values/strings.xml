@@ -58,7 +58,7 @@
     <string name="autosave_on">Auto-save ON — statuses you view will save themselves</string>
     <string name="autosave_off">Auto-save OFF</string>
 
-    <string name="diag_title">Diagnostics (v1.4.1)</string>
+    <string name="diag_title">Diagnostics (v1.5)</string>
     <string name="btn_copy_diagnostics">Copy diagnostics</string>
     <string name="diagnostics_copied">Diagnostics copied — paste it anywhere to share</string>
 
@@ -80,6 +80,7 @@
     <string name="delete_failed">Couldn\'t delete that one</string>
 
     <string name="saved_gallery">Saved to gallery ✓</string>
+    <string name="already_saved">Already saved ✓</string>
     <string name="autosaved_gallery">Auto-saved ✓</string>
     <string name="save_failed">Save failed — check permissions</string>
     <string name="no_statuses">No statuses found — view one in WhatsApp first</string>

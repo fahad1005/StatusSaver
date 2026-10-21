@@ -30,6 +30,13 @@ import android.content.Context
 //    sleeping watcher gets ONE slim "Button is asleep — Wake it"
 //    banner instead. Also: whether the user dismissed the optional
 //    autostart step (step 4), so it never nags.
+// 6) v1.5: the SET of everything ever saved (identity = file name +
+//    byte size), capped at the most recent 300. SaveHelper consults
+//    it before copying — from ANY entry point — so the same status
+//    can never land in the gallery twice. (In v1.4.1 only auto-save
+//    had a duplicate guard, and it covered just the single most
+//    recent file; the filmed v1.4.1 test saved the same .jpg twice
+//    via manual taps, eleven minutes apart.)
 //
 // Everything here is plain local storage: nothing leaves the phone.
 object Prefs {
@@ -53,6 +60,7 @@ object Prefs {
     private const val KEY_STEP4_DISMISSED = "step4_dismissed"
     private const val KEY_SESSION_SNAPSHOT = "session_snapshot"
     private const val KEY_SESSION_SNAPSHOT_TIME = "session_snapshot_time"
+    private const val KEY_SAVED_IDS = "saved_ids"
 
     // One observed foreground window, as recorded by the watcher.
     data class LastScreen(
@@ -154,6 +162,55 @@ object Prefs {
         val p = prefs(context)
         val name = p.getString(KEY_LAST_SAVED_NAME, null) ?: return null
         return name to p.getLong(KEY_LAST_SAVED_LEN, -1L)
+    }
+
+    // ---- Saved-identities set (v1.5 global dedupe) ----
+    // One line per saved status: "name|size". Same separator safety
+    // as the session snapshot below: WhatsApp cache filenames are
+    // content hashes, so '|' and '\n' can't appear inside a name.
+    // Identity is name + SIZE (not name alone): if WhatsApp ever
+    // re-writes the same cache name with different bytes (a re-sent
+    // status), the new content is a different identity and may save.
+
+    // How many identities are remembered. Beyond this the OLDEST
+    // entries fall off (FIFO) — a status saved >300 saves ago could
+    // be saved again; the gallery itself still shows the first copy,
+    // and the user can delete it (which also forgets the identity —
+    // see forgetSavedIdentity).
+    private const val MAX_SAVED_IDS = 300
+
+    private fun savedIdLines(context: Context): MutableList<String> {
+        val text = prefs(context).getString(KEY_SAVED_IDS, null)
+        if (text.isNullOrEmpty()) return mutableListOf()
+        return text.split("\n").filter { it.isNotEmpty() }.toMutableList()
+    }
+
+    // TRUE if this exact file (name + size) has already been saved
+    // by ANY path — button tap, auto-save, or the in-app grid.
+    fun isAlreadySaved(context: Context, name: String, size: Long): Boolean =
+        savedIdLines(context).contains("$name|$size")
+
+    // Remember a verified save. Idempotent: re-recording the same
+    // identity doesn't duplicate or reorder it.
+    fun recordSavedIdentity(context: Context, name: String, size: Long) {
+        val lines = savedIdLines(context)
+        val entry = "$name|$size"
+        if (lines.contains(entry)) return
+        lines.add(entry)
+        while (lines.size > MAX_SAVED_IDS) lines.removeAt(0)
+        prefs(context).edit()
+            .putString(KEY_SAVED_IDS, lines.joinToString("\n"))
+            .apply()
+    }
+
+    // Forget an identity — called when the user deletes that file
+    // from My Saved, so a deleted status can be saved again.
+    fun forgetSavedIdentity(context: Context, name: String, size: Long) {
+        val lines = savedIdLines(context)
+        if (!lines.remove("$name|$size")) return
+        prefs(context).edit()
+            .putString(KEY_SAVED_IDS, lines.joinToString("\n"))
+            .apply()
     }
 
     // ---- Status-viewing session snapshot (v1.4.1) ----

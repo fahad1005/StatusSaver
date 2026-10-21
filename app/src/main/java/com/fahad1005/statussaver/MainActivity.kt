@@ -131,11 +131,20 @@ class MainActivity : AppCompatActivity() {
     // app deletes media in some cases; Android 10 does it via
     // RecoverableSecurityException). One launcher serves both flows.
     private var pendingDeleteSender: IntentSender? = null
+    // v1.5: the item a consent delete is acting on, so a confirmed
+    // deletion can also forget its dedupe identity (Prefs) — deleted
+    // means saveable again.
+    private var pendingDeleteItem: SavedItem? = null
     private val deleteConsentLauncher = registerForActivityResult(
         ActivityResultContracts.StartIntentSenderForResult()
     ) { result ->
         pendingDeleteSender = null
+        val deletedItem = pendingDeleteItem
+        pendingDeleteItem = null
         if (result.resultCode == RESULT_OK) {
+            if (deletedItem != null) {
+                Prefs.forgetSavedIdentity(this, deletedItem.name, deletedItem.sizeBytes)
+            }
             Toast.makeText(this, getString(R.string.deleted_ok), Toast.LENGTH_SHORT).show()
             loadSaved()
         } else {
@@ -144,12 +153,16 @@ class MainActivity : AppCompatActivity() {
     }
 
     // One item in the phone's StatusSaver gallery albums.
+    // v1.5: carries the byte size too — (name, size) is the dedupe
+    // identity SaveHelper records, and deleting the item must forget
+    // that identity so the status can be saved again.
     private data class SavedItem(
         val uri: Uri,
         val id: Long,
         val name: String,
         val isVideo: Boolean,
-        val dateAddedSec: Long
+        val dateAddedSec: Long,
+        val sizeBytes: Long
     )
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -469,11 +482,18 @@ class MainActivity : AppCompatActivity() {
             "— (no saves yet)"
         } else {
             val time = SimpleDateFormat("h:mm a", Locale.US).format(Date(save.timeMs))
-            val result = if (save.ok) {
-                if (save.reason == "auto") "SAVED (auto)" else "SAVED"
-            } else {
-                val why = save.reason.take(60).ifEmpty { "unknown error" }
-                "FAILED ($why)"
+            // v1.5: an already-saved attempt is recorded with ok =
+            // false (this attempt copied nothing) and the reason
+            // "already saved" — render it as what it is, not as a
+            // failure and not as a fresh save.
+            val result = when {
+                save.reason == "already saved" -> "ALREADY SAVED"
+                save.reason == "auto: already saved" -> "ALREADY SAVED (auto)"
+                save.ok -> if (save.reason == "auto") "SAVED (auto)" else "SAVED"
+                else -> {
+                    val why = save.reason.take(60).ifEmpty { "unknown error" }
+                    "FAILED ($why)"
+                }
             }
             "$time · ${save.fileName} · ${humanSize(save.sizeBytes)} · $result"
         }
@@ -515,7 +535,7 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun copyDiagnostics() {
-        val text = StringBuilder("StatusSaver v1.4.1 diagnostics\n")
+        val text = StringBuilder("StatusSaver v1.5 diagnostics\n")
         for ((label, value) in diagnosticsRows()) {
             text.append("$label: $value\n")
         }
@@ -604,12 +624,24 @@ class MainActivity : AppCompatActivity() {
             }.start()
             h.btnSave.setOnClickListener {
                 Thread {
-                    val ok = SaveHelper.saveToGallery(this@MainActivity, item.file, item.isVideo)
+                    // v1.5: SaveResult — a status already in the
+                    // gallery answers "Already saved ✓" instead of
+                    // copying a duplicate (global dedupe lives in
+                    // SaveHelper, so the grid gets it for free).
+                    val result = SaveHelper.saveToGallery(
+                        this@MainActivity, item.file, item.isVideo
+                    )
                     runOnUiThread {
                         Toast.makeText(
                             this@MainActivity,
-                            if (ok) getString(R.string.saved_gallery)
-                            else getString(R.string.save_failed),
+                            when (result) {
+                                SaveHelper.SaveResult.Saved ->
+                                    getString(R.string.saved_gallery)
+                                SaveHelper.SaveResult.AlreadySaved ->
+                                    getString(R.string.already_saved)
+                                is SaveHelper.SaveResult.Failed ->
+                                    getString(R.string.save_failed)
+                            },
                             Toast.LENGTH_SHORT
                         ).show()
                     }
@@ -670,7 +702,8 @@ class MainActivity : AppCompatActivity() {
         val projection = arrayOf(
             MediaStore.MediaColumns._ID,
             MediaStore.MediaColumns.DISPLAY_NAME,
-            MediaStore.MediaColumns.DATE_ADDED
+            MediaStore.MediaColumns.DATE_ADDED,
+            MediaStore.MediaColumns.SIZE
         )
         val selection: String
         val args: Array<String>
@@ -691,6 +724,7 @@ class MainActivity : AppCompatActivity() {
                     val idCol = c.getColumnIndexOrThrow(MediaStore.MediaColumns._ID)
                     val nameCol = c.getColumnIndexOrThrow(MediaStore.MediaColumns.DISPLAY_NAME)
                     val dateCol = c.getColumnIndexOrThrow(MediaStore.MediaColumns.DATE_ADDED)
+                    val sizeCol = c.getColumnIndexOrThrow(MediaStore.MediaColumns.SIZE)
                     while (c.moveToNext()) {
                         val id = c.getLong(idCol)
                         out.add(
@@ -699,7 +733,8 @@ class MainActivity : AppCompatActivity() {
                                 id = id,
                                 name = c.getString(nameCol) ?: "",
                                 isVideo = isVideo,
-                                dateAddedSec = c.getLong(dateCol)
+                                dateAddedSec = c.getLong(dateCol),
+                                sizeBytes = c.getLong(sizeCol)
                             )
                         )
                     }
@@ -843,6 +878,12 @@ class MainActivity : AppCompatActivity() {
             runOnUiThread {
                 when {
                     deleted -> {
+                        // v1.5: the file is gone from the gallery —
+                        // forget its dedupe identity too, so the same
+                        // status can be saved again later.
+                        Prefs.forgetSavedIdentity(
+                            this, item.name, item.sizeBytes
+                        )
                         Toast.makeText(
                             this, getString(R.string.deleted_ok), Toast.LENGTH_SHORT
                         ).show()
@@ -850,6 +891,7 @@ class MainActivity : AppCompatActivity() {
                     }
                     sender != null -> {
                         pendingDeleteSender = sender
+                        pendingDeleteItem = item
                         deleteConsentLauncher.launch(
                             IntentSenderRequest.Builder(sender).build()
                         )
@@ -860,6 +902,7 @@ class MainActivity : AppCompatActivity() {
                                 contentResolver, listOf(item.uri)
                             )
                             pendingDeleteSender = request.intentSender
+                            pendingDeleteItem = item
                             deleteConsentLauncher.launch(
                                 IntentSenderRequest.Builder(request.intentSender).build()
                             )

@@ -1,11 +1,32 @@
-# StatusSaver v1.4.1 — update instructions
+# StatusSaver v1.5 — update instructions
 
-**⚠️ This zip SUPERSEDES the v1.4 zip.** v1.4.1 contains everything
-v1.4 had, plus two more fixes (below). If you still have
-`StatusSaver-v1.4-updated-files.zip`, delete it and use
-**`StatusSaver-v1.4.1-updated-files.zip`** only. (If you already
-uploaded the v1.4 files, that's fine — uploading this set on top
-replaces them; nothing extra to delete.)
+**⚠️ This zip SUPERSEDES the v1.4.1 zip.** If you still have
+`StatusSaver-v1.4.1-updated-files.zip`, delete it and use
+**`StatusSaver-v1.5-updated-files.zip`** only. (Uploading this set
+on top of what's in the repo replaces those files; nothing extra
+to delete — v1.5 adds no new files.)
+
+**New in v1.5** (from your v1.4.1 test — recordings + Diagnostics):
+- **A status can only be saved ONCE.** Your recording showed the
+  same photo saved twice, eleven minutes apart. Now every save —
+  button, auto-save, and the in-app grid — checks one shared
+  memory first: if it's already in your gallery, the answer is
+  **"Already saved ✓"** and nothing is copied again. (Deleting a
+  save in My Saved clears the memory, so you can save it again.)
+- **Toasts can't pretend.** "Saved ✓" messages used to queue up
+  and pop up later, during other statuses — looking like saves
+  nobody asked for. Now a new message replaces the old one
+  instantly, so what you see is always the latest truth.
+- **A tap needs a viewed status.** A tap inside a chat — before
+  you've opened any status — used to save some old cached file.
+  Now it answers **"Open a status first"** and saves nothing. Once
+  you've viewed a status, taps work everywhere in WhatsApp as
+  before, including right after you back out to a chat.
+- **The button rides out interruptions.** Other apps' popups
+  (like a screen recorder's controls) could steal the screen for a
+  moment and drop the button mid-status. It now waits ~1.2 seconds
+  of proof before hiding. (Flip side: it may linger ~1.2 s after
+  you leave WhatsApp. That's the trade.)
 
 **New in v1.4.1** (from your second screen recording):
 - **The button now saves the status you're LOOKING at.** Your
@@ -45,14 +66,13 @@ it showed three things screenshots couldn't):
 
 Same code works on **all** Android phones — nothing brand-specific.
 
-The zip `StatusSaver-v1.4.1-updated-files.zip` contains ONLY the files
+The zip `StatusSaver-v1.5-updated-files.zip` contains ONLY the files
 that changed, in their proper folders. `build.yml` is NOT touched.
-**No file needs deleting this time** — the NEW files
-(`BootReceiver.kt` and the launcher-icon files) are added
-automatically by the upload.
+**No file needs deleting this time** — v1.5 changes existing files
+only, nothing new is added.
 
 ## Step 1 — Unzip
-1. Find `StatusSaver-v1.4.1-updated-files.zip` on your PC.
+1. Find `StatusSaver-v1.5-updated-files.zip` on your PC.
 2. Right-click it → **Extract All** → Extract.
 3. You now have a folder containing an `app` folder and some `.md` files.
 
@@ -65,12 +85,11 @@ automatically by the upload.
    **`STORE_LISTING.md`**.
    ⚠️ Drag the *contents*, not the wrapper folder — the old trap:
    **check before committing that every path starts with `/app/...`**
-   (or is one of the five `.md` files). If you see
-   `StatusSaver-v1.4.1-updated-files/` in front of a path, you dragged
+   (or is one of the `.md` files in the zip). If you see
+   `StatusSaver-v1.5-updated-files/` in front of a path, you dragged
    the wrapper again — remove it and drag the inside instead.
 4. GitHub keeps the folder structure — files with the same name/path
-   **replace** the old ones, and `BootReceiver.kt` is added new.
-   Nothing else in your repo is touched.
+   **replace** the old ones. Nothing else in your repo is touched.
 5. **Commit changes.**
 
 ## Step 3 — Wait for the green build
@@ -87,14 +106,14 @@ automatically by the upload.
    **StatusSaver-debug-apk**.
 2. Unzip it, send `app-debug.apk` to your phone (Google Drive, not
    Gmail — Gmail blocks APKs), and install it.
-3. **You can install v1.4.1 OVER the version on your phone** — your settings (setup,
+3. **You can install v1.5 OVER the version on your phone** — your settings (setup,
    button on/off, auto-save choice) carry over. If the phone refuses
    ("App not installed"), uninstall the old StatusSaver first, then
    install; you'll just do the one-time setup again. (Normal: Play
    Protect may warn because the app uses Accessibility — it's your
    own app; proceed.)
 
-## Step 5 — The v1.4.1 test
+## Step 5 — The v1.5 test
 Do it in this order — each step tests one fix:
 
 1. **Setup state.** Open StatusSaver. Because v1.3's setup carries
@@ -116,6 +135,11 @@ Do it in this order — each step tests one fix:
    `Watcher: NOT CONNECTED`, your phone's autostart/battery settings
    blocked the return; do Step 4's autostart + your brand's battery
    row in the README, then repeat the reboot test.)
+3b. **THE CHAT-TAP CHECK (new in v1.5).** Still in WhatsApp, on
+   the **chat list** — you have NOT opened any status since the
+   reboot — tap the green button. It must answer **"Open a status
+   first"** and save NOTHING. (Before v1.5, that tap quietly saved
+   whatever old status file was lying in the cache.)
 4. **Recents test.** Swipe StatusSaver away from Recents (open it
    first if needed), then open WhatsApp — button still there.
 5. **Save FIVE mixed statuses — all five must save.** In WhatsApp,
@@ -131,6 +155,11 @@ Do it in this order — each step tests one fix:
    green button while B is on screen. The save must be **B** —
    check the toast and the newest item in My Saved. (Before this
    fix, that tap re-saved A.)
+5c. **THE SECOND-TAP CHECK (new in v1.5).** Stay on a status you
+   have just saved and tap the green button **again, on the SAME
+   status**. The toast must say **"Already saved ✓"** — and the
+   StatusSaver album (and My Saved) must NOT gain a second copy.
+   Note the album count before and after: it must not grow.
 6. **ONE album.** Open your Gallery: there should be ONE
    **StatusSaver** album, and ALL five saves inside it — photos and
    videos together. Also check the app's **My Saved** tab — the five
@@ -156,9 +185,24 @@ Do it in this order — each step tests one fix:
 | Full wizard shows again | Should NOT happen after setup completed once | Screenshot the whole home screen + Diagnostics and send to Bullet — that's a v1.4 bug to fix |
 | A save says "Save failed" on a long video | The video was still downloading when tapped, even after the wait | Let the status finish loading (no spinner), tap again. If it still fails, send the Diagnostics screenshot — the Last save row says why |
 | Saved ✓ but the album looks empty | Gallery indexing lag | Check the Files app → Pictures → StatusSaver; the files are there. Send Bullet the Diagnostics screenshot — the Last save row proves the save |
-| Button blinks while swiping statuses | Should be fixed by the ~0.6 s grace | Screen-record it and send to Bullet — the recording is what found it last time |
+| Button blinks while swiping statuses | Should be fixed by the ~1.2 s grace (v1.5) | Screen-record it and send to Bullet — the recording is what found it last time |
+| Second tap on the same status saves a duplicate | Should NOT happen in v1.5 — the second tap must say "Already saved ✓" | Send the Diagnostics screenshot — the Last save row should read ALREADY SAVED; if it says SAVED twice for the same file, that's a v1.5 bug |
+| Tap in a chat saves an old status | Should NOT happen in v1.5 before any status is viewed — it must say "Open a status first" | Send the Diagnostics screenshot + say whether you had opened a status since opening WhatsApp |
 
 ## What changed (for your records)
+- **Save once (v1.5):** every save path checks one shared
+  saved-list first — a status already in your gallery answers
+  "Already saved ✓" and never copies again. Deleting it in
+  My Saved makes it saveable again.
+- **Honest toasts (v1.5):** a new toast replaces the previous one
+  instead of queueing behind it — no more stale "Saved ✓" messages
+  landing during later statuses.
+- **Tap gate (v1.5):** before you've viewed a status in this
+  WhatsApp visit, a tap answers "Open a status first"; after
+  viewing, taps work as before, chats included.
+- **Hide grace (v1.5):** the button now needs ~1.2 s of WhatsApp
+  really being gone before hiding (was ~0.6 s), so other apps'
+  popups can't drop it mid-status.
 - **Right file (v1.4.1):** watcher saves (tap + auto-save) now use
   session targeting — the cache is snapshotted when a status opens,
   and the save takes the file that appeared/changed for THIS
@@ -170,16 +214,17 @@ Do it in this order — each step tests one fix:
 - **Setup:** completion is now remembered forever; sleeping watcher
   = one "Wake it" banner; optional Autostart step; silent boot
   warm-up (new `BootReceiver`).
-- **Tap:** no more matcher gate — a tap in WhatsApp always saves the
-  newest status; saves wait for the file to finish writing first
-  (~5 s budget for videos, ~3 s for images) and still verify.
-- **Button:** no flicker — hiding needs ~0.6 s of WhatsApp really
-  being gone; showing is instant as before.
+- **Tap:** a tap saves the status you viewed (v1.4: no per-screen
+  matcher gate; v1.5: it does need a status viewed this visit —
+  see Tap gate above); saves wait for the file to finish writing
+  first (~5 s budget for videos, ~3 s for images) and still verify.
+- **Button:** no flicker — hiding needs ~1.2 s of WhatsApp really
+  being gone (v1.5, was ~0.6 s); showing is instant as before.
 - **Gallery:** ONE album — `Pictures/StatusSaver` for photos AND
   videos. (v1.0–v1.3 videos sit in `Movies/StatusSaver`; My Saved
   still lists them.)
 - **Auto-save:** fires only on statuses you actually open after the
   engine is awake — never from restored state — and says
   "Auto-saved ✓". Diagnostics shows `Auto-save: ON/OFF`.
-- Version is now **1.4.1 (versionCode 6)** — full engineering detail is
+- Version is now **1.5 (versionCode 7)** — full engineering detail is
   in `BUILD_NOTES.md`.

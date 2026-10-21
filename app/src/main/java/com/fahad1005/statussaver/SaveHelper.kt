@@ -16,10 +16,12 @@ import java.io.File
 // note in saveViaMediaStore; v1.1–v1.3 split videos into
 // Movies/StatusSaver and users couldn't find them).
 //
-// Returns true ONLY after the save is verified: every byte copied and,
-// on Android 10+, the MediaStore row queried back with matching size
-// and MIME type. Any failure returns false so callers show an honest
-// error toast instead of a fake "Saved ✓".
+// A save counts as SAVED only after it is verified: every byte
+// copied and, on Android 10+, the MediaStore row queried back with
+// matching size and MIME type. Any failure is reported as FAILED so
+// callers show an honest error toast instead of a fake "Saved ✓" —
+// and since v1.5 the result is a SaveResult (below), which can also
+// say ALREADY_SAVED.
 //
 // v1.3 additions:
 //  - Every attempt (success OR failure, with the failure's reason) is
@@ -40,7 +42,26 @@ import java.io.File
 // copying we now wait for the file's size to stop changing (see
 // awaitStableFile). It lives here, in the one save path, so button
 // saves, automatic saves and in-app grid saves all benefit.
+//
+// v1.5 addition — GLOBAL DEDUPE + a result type that can say so.
+// The v1.4.1 field film shows the SAME .jpg landing in the gallery
+// twice (11:51 PM, then again ~12:02 AM) from ordinary manual taps:
+// the only duplicate guard in the code watched the single most
+// recent file and was consulted by auto-save alone. Now the check
+// lives HERE, in the one choke point every save flows through,
+// against a persisted SET of everything ever saved (Prefs), and the
+// return value distinguishes "saved" / "already saved" / "failed
+// (why)" so each caller can answer honestly.
 object SaveHelper {
+
+    // The outcome of one save attempt. Failed carries the reason —
+    // the same text SaveHelper records in the Diagnostics LastSave
+    // record — so a caller never has to invent its own explanation.
+    sealed class SaveResult {
+        object Saved : SaveResult()
+        object AlreadySaved : SaveResult()
+        data class Failed(val reason: String) : SaveResult()
+    }
 
     private const val TAG = "SaveHelper"
 
@@ -94,15 +115,25 @@ object SaveHelper {
     // because the user turned on "Auto-save every status I view". The
     // attempt is then recorded with reason "auto" so the Diagnostics
     // card can tell automatic saves from tapped ones.
+    //
+    // v1.5: returns SaveResult (was Boolean). An attempt whose file
+    // identity (name + post-stability size) is already in Prefs'
+    // saved set returns AlreadySaved WITHOUT copying — from every
+    // entry point, not just auto-save — and is still recorded in the
+    // Diagnostics LastSave record, with reason "already saved".
     fun saveToGallery(
         context: Context,
         file: File,
         isVideo: Boolean,
         viaAuto: Boolean = false
-    ): Boolean {
+    ): SaveResult {
         var failureReason = ""
+        var alreadySaved = false
         val ok = try {
             // v1.4: never copy a file WhatsApp may still be writing.
+            // The dedupe check runs AFTER this wait on purpose: the
+            // identity's size must be the file's settled size, not a
+            // mid-download length that will never match anything.
             awaitStableFile(file, isVideo)
             if (file.length() <= 0L) {
                 // Nothing to copy: WhatsApp hasn't written the status
@@ -113,7 +144,13 @@ object SaveHelper {
                     "Status file is empty — WhatsApp may still be downloading it"
                 )
             }
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            // v1.5: the dedupe choke point. One check, one place —
+            // button, auto-save and grid all pass through here, so
+            // no path can duplicate a save another path already made.
+            if (Prefs.isAlreadySaved(context, file.name, file.length())) {
+                alreadySaved = true
+                false
+            } else if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
                 saveViaMediaStore(context, file, isVideo)
             } else {
                 saveLegacy(context, file)
@@ -123,13 +160,16 @@ object SaveHelper {
             failureReason = e.message ?: e.javaClass.simpleName
             false
         }
-        if (!ok && failureReason.isEmpty()) {
-            failureReason = "copy or verification failed"
-        }
         // v1.3: record the attempt for the Diagnostics card. Guarded —
         // bookkeeping must never break the save path itself.
+        // v1.5: an already-saved attempt is recorded too (ok = false —
+        // no bytes were copied by THIS attempt — with the reason
+        // "already saved"; the Diagnostics card renders that reason
+        // as ALREADY SAVED, not as a failure).
         try {
             val reason = when {
+                alreadySaved && viaAuto -> "auto: already saved"
+                alreadySaved -> "already saved"
                 ok && viaAuto -> "auto"
                 ok -> ""
                 viaAuto -> "auto: $failureReason"
@@ -146,13 +186,24 @@ object SaveHelper {
             // Final spec: remember WHICH file was saved (any path —
             // button, grid, automatic) so auto-save's duplicate guard
             // can skip re-saving the very same file.
+            // v1.5: ALSO add the identity to the persistent saved set
+            // — that set, not this single record, is now the dedupe
+            // authority (this record stays for auto-save's cheap
+            // pre-check).
             if (ok) {
                 Prefs.saveLastSavedFile(context, file.name, file.length())
+                Prefs.recordSavedIdentity(context, file.name, file.length())
             }
         } catch (e: Exception) {
             Log.e(TAG, "Could not record save attempt", e)
         }
-        return ok
+        return when {
+            alreadySaved -> SaveResult.AlreadySaved
+            ok -> SaveResult.Saved
+            else -> SaveResult.Failed(
+                failureReason.ifEmpty { "copy or verification failed" }
+            )
+        }
     }
 
     // MIME type for the file. Videos are ALWAYS typed as video/* — v1 used

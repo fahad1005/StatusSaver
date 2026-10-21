@@ -1,6 +1,165 @@
-# StatusSaver — build notes (v1, 2026-10-19; v1.1–v1.4.1 updates 2026-10-20)
+# StatusSaver — build notes (v1, 2026-10-19; v1.1–v1.5 updates 2026-10-20)
 
 Engineering log for the v1 build.
+
+## v1.5 (2026-10-20) — dedupe everywhere, honest toasts, a tap gate with a memory
+
+Built on the v1.4.1 disk state. Every change traces to the
+v1.4.1 phone test — Fahad's screen recordings, his Diagnostics
+paste (watcher CONNECTED, auto-save OFF, last save 11:51 PM
+`ce802871…jpg` · SAVED), and a code read of the save paths.
+
+### Field evidence
+- **THE SAME STATUS SAVED TWICE.** The Diagnostics paste records
+  `ce802871a94f4bbcacadb457a6ed8a9d.jpg` SAVED at 11:51 PM; the
+  next recording shows the same file saved AGAIN ~12:02 AM by an
+  ordinary manual tap. Code read: the only duplicate guard watched
+  the single most recent save and was consulted **only in
+  autoSaveNow** — manual taps (and grid saves) had no dedupe at
+  all.
+- **TOASTS THAT LOOK LIKE GHOST SAVES.** In the recordings,
+  "Saved ✓" toasts surface during statuses where no save was
+  tapped. Android toasts QUEUE: each save's toast waits its turn,
+  so feedback for an earlier save lands a minute later, on a
+  different screen, indistinguishable from the app saving by
+  itself.
+- **A CHAT TAP SAVED AN 11-MINUTE-OLD IMAGE.** v1.4's ungated tap
+  fires anywhere in WhatsApp: a tap inside a chat, with no status
+  viewed, resolved the session-target fallback (newest cache file)
+  and saved a status cached 11 minutes earlier.
+- **FOREIGN WINDOWS STEAL THE FOREGROUND.** The Diagnostics
+  "Last seen screen" shows non-WhatsApp windows (e.g. the vivo
+  screen recorder's own overlay) taking foreground events
+  mid-viewing — the 600 ms hide grace was too short to ride them
+  out, so the button could still drop during a viewing.
+
+### FIX 1 — global dedupe at the choke point (`SaveHelper`, `Prefs`)
+Dedupe moved INTO `SaveHelper.saveToGallery` — the one function
+every save flows through (button tap, auto-save, in-app grid).
+`Prefs` now keeps a persisted SET of saved identities,
+`name|size`, capped at the most recent 300 (FIFO trim), serialized
+as "name|size" lines (content-hash filenames make the separators
+collision-free, same as the session snapshot).
+
+Flow: stability wait first (identity size = the SETTLED size, not
+a mid-download length) → empty-file check → set lookup → copy +
+verify as before. A hit returns without copying.
+
+`saveToGallery` now returns a sealed `SaveResult` —
+`Saved` / `AlreadySaved` / `Failed(reason)` — and ALL three
+callers handle all three cases:
+- watcher tap: Failed → "Save failed"; AlreadySaved → new string
+  "Already saved ✓"; Saved → the existing saved/age-naming toasts.
+- watcher auto-save: toast only on Saved (an already-saved skip is
+  silent, as failures already were); the old last-saved pre-check
+  stays as a cheap scan-avoidance layer in front.
+- grid: Saved → "Saved to gallery ✓"; AlreadySaved → "Already
+  saved ✓"; Failed → "Save failed".
+
+Every attempt is still recorded in the Diagnostics LastSave
+record; an already-saved attempt is recorded with ok = false (this
+attempt copied nothing) and reason **"already saved"** (auto path:
+"auto: already saved"); the Diagnostics card renders those as
+**ALREADY SAVED**, distinct from both SAVED and FAILED.
+
+Deleting from My Saved forgets the identity: `MainActivity`'s
+delete path (direct delete AND the consent-flow launcher, whose
+target item is now remembered) calls
+`Prefs.forgetSavedIdentity(name, size)` on success — `SavedItem`
+gained the MediaStore SIZE for exactly this — so a deleted status
+can be saved again.
+
+### FIX 2 — one reusable watcher toast (`StatusWatcherService`)
+The watcher keeps a single `Toast` instance; `toastOnUi` cancels
+the previous toast before showing the next. Feedback can never be
+stale: at most one watcher toast is alive and it belongs to the
+latest event. MainActivity's one-off UI toasts are untouched (they
+answer direct taps in the app's own UI, where queueing reads
+correctly).
+
+### FIX 3 — tap session gate (`StatusWatcherService`)
+The button stays visible on every WhatsApp screen (unchanged);
+what changed is what a tap MEANS before any status was viewed. A
+new in-service flag, `statusViewedThisStint`:
+- set TRUE on the live false→true viewer-entry transition (the
+  same transition that snapshots the session and arms auto-save);
+- set FALSE when `whatsappOnScreen` flips true→false (WhatsApp
+  left the foreground — the next stint starts unproven), and at
+  every (re)bind/unbind/destroy, so restored state can never open
+  the gate.
+Tap with the flag FALSE → the existing "Open a status first"
+toast, nothing saved. Flag TRUE → save via `resolveSessionTarget`
+exactly as v1.4.1, so a tap in a chat right AFTER viewing still
+saves the viewed status — intended.
+
+This is deliberately NOT v1.3's matcher gate: that judged the
+LAST window event and refused real statuses when the class name
+missed. This gate is a session fact — once a viewer entry happened
+in this stint, the gate stays open for the stint regardless of
+what later events say.
+
+### FIX 4 — hide grace 600 → 1200 ms
+`HIDE_GRACE_MS` 600 → 1200, per the foreign-window evidence above.
+Trade-off, stated honestly (also in the code comment): after the
+user really leaves WhatsApp, the button may linger ~1.2 s over
+the next app before coming down.
+
+### Honest limits
+- **Targeting is still a heuristic for videos.** Session diffing
+  picks what WhatsApp changed since viewer entry; if a video is
+  still being written while an image prefetch completes, the image
+  can still win the diff and the tap saves the image, not the
+  video. v1.5's dedupe + gate remove the HARMFUL failures
+  (duplicates, stale-target chat saves, phantom feedback) — they
+  cannot create targeting evidence WhatsApp never wrote. The
+  size-stability wait still gives the video its ~5 s to finish
+  before the copy.
+- The dedupe set remembers 300 identities; a status saved more
+  than 300 saves ago can be saved a second time (its first copy is
+  still in the album, and deleting it there forgets the identity
+  anyway).
+- Identity is name + size: if WhatsApp re-writes a cache file
+  under the same content-hash name with different bytes, that is a
+  NEW identity and will save — by design.
+- The tap gate trusts the same class-name matcher as auto-save
+  for "viewer entered". If a future WhatsApp renames its viewer
+  past the matcher, taps in a first status would answer "Open a
+  status first" until the matcher learns the new name — the
+  Diagnostics Last-seen row shows the exact class, as before.
+
+### Files changed in v1.5
+- `SaveHelper.kt` — `SaveResult` sealed type; dedupe check inside
+  `saveToGallery` (after the stability wait); identity recorded on
+  verified saves; already-saved attempts recorded with reason
+  "already saved".
+- `Prefs.kt` — saved-identities set (`isAlreadySaved`,
+  `recordSavedIdentity`, `forgetSavedIdentity`; cap 300, FIFO).
+- `StatusWatcherService.kt` — `statusViewedThisStint` gate
+  (set/reset + `onButtonTap` consults it); single reusable toast
+  (cancel-before-show); both save callers handle `SaveResult`;
+  `HIDE_GRACE_MS` 1200.
+- `MainActivity.kt` — grid save handles `SaveResult`;
+  Diagnostics renders ALREADY SAVED + header label v1.5;
+  `SavedItem` carries SIZE; delete paths (direct + consent)
+  forget the dedupe identity on success.
+- `strings.xml` — NEW `already_saved` ("Already saved ✓");
+  Diagnostics title → v1.5.
+- `app/build.gradle` — versionCode 7 / versionName "1.5".
+- `BUILD_NOTES.md`, `UPDATE_INSTRUCTIONS.md` — this section and
+  the v1.5 ritual (new checks: re-tap must answer "Already saved
+  ✓" with no album growth; a chat tap BEFORE any status must
+  answer "Open a status first").
+
+### Residual risks (v1.5)
+- The video-targeting heuristic above is the known remaining
+  weakness; the v1.5 phone test's long-video step is its judge.
+- A fully-pre-cached re-view (no diff) still falls back to newest
+  overall — unchanged from v1.4.1, with the age-naming toast.
+- Compilation remains GitHub Actions' verdict (no compiler here);
+  static self-review: zero `!!`, all R.string/R.id references
+  resolve, all XML parses, braces/parens/brackets balance in every
+  Kotlin file, and a grep confirms all three `saveToGallery`
+  callers use the new result type.
 
 ## v1.4.1 (2026-10-20) — consolidation: save the status you're LOOKING at
 
